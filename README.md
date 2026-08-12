@@ -1,6 +1,10 @@
-# Windy
+<p align="center">
+  <img src="docs/brand/windy-logo.svg" width="128" alt="Windy logo">
+</p>
 
-> A page-native agent for Obsidian.
+<h1 align="center">Windy</h1>
+
+<p align="center"><strong>A page-native agent for Obsidian.</strong></p>
 
 Windy is an experimental Obsidian agent that treats the page—not the chat tab—as the primary unit of work.
 
