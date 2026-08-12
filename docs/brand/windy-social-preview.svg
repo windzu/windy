@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" role="img" aria-labelledby="title description">
+  <title id="title">Windy social preview</title>
+  <desc id="description">Windy, a page-native agent for Obsidian.</desc>
+  <defs>
+    <linearGradient id="canvas" x1="60" y1="20" x2="1220" y2="620" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#0F172A"/>
+      <stop offset="1" stop-color="#111827"/>
+    </linearGradient>
+    <linearGradient id="brand" x1="124" y1="110" x2="492" y2="524" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="0.52" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <radialGradient id="brandGlow" cx="0" cy="0" r="1" gradientTransform="translate(225 183) rotate(48.4) scale(310 304)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67E8F9" stop-opacity="0.42"/>
+      <stop offset="0.68" stop-color="#67E8F9" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="canvasGlow" cx="0" cy="0" r="1" gradientTransform="translate(1042 82) rotate(132) scale(438 632)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4F46E5" stop-opacity="0.28"/>
+      <stop offset="1" stop-color="#4F46E5" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="71" y="77" width="492" height="500" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="16" stdDeviation="22" flood-color="#020617" flood-opacity="0.44"/>
+    </filter>
+  </defs>
+  <rect width="1280" height="640" rx="32" fill="url(#canvas)"/>
+  <rect width="1280" height="640" rx="32" fill="url(#canvasGlow)"/>
+  <g opacity="0.14" stroke="#94A3B8">
+    <path d="M640 0V640"/>
+    <path d="M0 320H1280"/>
+  </g>
+  <g filter="url(#shadow)">
+    <rect x="104" y="104" width="416" height="416" rx="104" fill="url(#brand)"/>
+    <rect x="104" y="104" width="416" height="416" rx="104" fill="url(#brandGlow)"/>
+    <rect x="105" y="105" width="414" height="414" rx="103" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2"/>
+  </g>
+  <path
+    d="M153 315C175.3 315 188.3 278.8 209.7 258.4C217.1 251.3 223 254.7 220.8 266.8L208.7 333.7C204.6 356 214.3 369 229.1 359.7L297.9 265C306.3 253.8 314.1 256.2 311.5 269.6L299.2 334.6C295.1 356.9 305.9 368.4 320.7 358.4L388.9 264C397.3 252.3 405.3 256 402.5 269.6L390.3 335.2C386.2 357.5 397 369.8 412.2 358.8L471.3 275.8C479.7 264.1 486.6 266.5 490.7 277.6C497.4 296.2 505.5 312.4 523.8 312.4"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="16.7"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <text x="640" y="245" fill="#F8FAFC" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="104" font-weight="720" letter-spacing="-4">Windy</text>
+  <text x="646" y="319" fill="#CBD5E1" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="38" font-weight="500">A page-native agent for Obsidian.</text>
+  <line x1="646" y1="369" x2="1128" y2="369" stroke="#475569"/>
+  <text x="646" y="426" fill="#94A3B8" font-family="Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" font-size="25" font-weight="450" letter-spacing="0.4">THE PAGE IS THE WORKSPACE.</text>
+</svg>

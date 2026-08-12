@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Windy logo</title>
+  <desc id="description">A flowing white W mark on a blue and violet rounded square.</desc>
+  <defs>
+    <linearGradient id="background" x1="64" y1="32" x2="448" y2="480" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#2563EB"/>
+      <stop offset="0.52" stop-color="#4F46E5"/>
+      <stop offset="1" stop-color="#7C3AED"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="0" cy="0" r="1" gradientTransform="translate(162 122) rotate(48.4) scale(351 344)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#67E8F9" stop-opacity="0.42"/>
+      <stop offset="0.68" stop-color="#67E8F9" stop-opacity="0"/>
+    </radialGradient>
+    <filter id="shadow" x="16" y="20" width="480" height="488" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feDropShadow dx="0" dy="14" stdDeviation="18" flood-color="#111827" flood-opacity="0.28"/>
+    </filter>
+  </defs>
+  <g filter="url(#shadow)">
+    <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#background)"/>
+    <rect x="32" y="32" width="448" height="448" rx="112" fill="url(#glow)"/>
+    <rect x="33" y="33" width="446" height="446" rx="111" fill="none" stroke="#FFFFFF" stroke-opacity="0.18" stroke-width="2"/>
+  </g>
+  <path
+    d="M84 259C108 259 122 220 145 198C153 190.4 159.4 194 157 207L144 279C139.6 303 150 317 166 307L240 205C249 193 257.4 195.6 254.6 210L241.4 280C237 304 248.6 316.4 264.6 305.6L338 203C347 190.4 355.6 194.4 352.6 209L339.4 279.6C335 303.6 346.6 316.8 363 305L426.6 215.6C435.6 203 443 205.6 447.4 217.6C454.6 237.6 463.4 255 483 255"
+    fill="none"
+    stroke="#FFFFFF"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+</svg>
