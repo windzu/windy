@@ -35,7 +35,10 @@ import { resolveFileAttachmentPath } from '../utils/fileAttachment';
 import { getVaultPath } from '../utils/path';
 
 export class MessageListRenderer extends Component {
-  constructor(private readonly app: App) {
+  constructor(
+    private readonly app: App,
+    private readonly activityExpansion = new Map<string, boolean>(),
+  ) {
     super();
   }
 
@@ -231,7 +234,11 @@ export class MessageListRenderer extends Component {
     const details = messageElement.createEl('details', {
       cls: `windy-activity windy-activity--${activity.state}`,
     });
-    details.open = activity.defaultExpanded;
+    details.open = this.activityExpansion.get(message.id)
+      ?? activity.defaultExpanded;
+    details.addEventListener('toggle', () => {
+      this.activityExpansion.set(message.id, details.open);
+    });
     const summary = details.createEl('summary', {
       cls: 'windy-activity__summary',
     });
@@ -243,7 +250,12 @@ export class MessageListRenderer extends Component {
       cls: 'windy-activity__title',
       text: activity.summary,
     });
-    if (activity.items.length > 0) {
+    if (activity.currentActivity) {
+      summary.createSpan({
+        cls: 'windy-activity__current',
+        text: activity.currentActivity,
+      });
+    } else if (activity.items.length > 0) {
       summary.createSpan({
         cls: 'windy-activity__count',
         text: `${activity.items.length} ${activity.items.length === 1 ? 'activity' : 'activities'}`,

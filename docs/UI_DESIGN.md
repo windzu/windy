@@ -31,8 +31,11 @@ supports light and dark themes, and avoids hard-coded application surfaces.
 - User requests are compact and visually distinct.
 - Assistant answers use the full reading width without a surrounding card.
 - Reasoning and tool calls form one ordered, collapsible activity trail.
-- Active work keeps the activity trail open; terminal turns collapse to a
-  duration summary and remain manually expandable.
+- Active work keeps the activity trail collapsed and surfaces only the current
+  action in its summary; the full trail remains manually expandable.
+- Terminal turns collapse to a duration and activity-count summary.
+- Codex activity renders concise, user-facing reasoning summaries; raw model
+  reasoning is not part of the transcript.
 - Activity labels are derived locally from normalized tool metadata rather
   than generated through an additional model request.
 - Running, completed, blocked, and failed states remain distinguishable.

@@ -106,17 +106,36 @@ test('preserves activity order while coalescing reasoning deltas', () => {
   );
 });
 
-test('keeps active turns expanded even before the first tool event', () => {
+test('keeps active turns collapsed while reporting the current activity', () => {
   const model = buildActivityViewModel(
-    assistantMessage({ content: '' }),
+    assistantMessage({
+      content: '',
+      contentBlocks: [
+        { type: 'thinking', content: '**Inspecting the activity renderer**\n\nReading the UI state.' },
+      ],
+    }),
     true,
     'running',
   );
 
   assert.equal(model.summary, 'Working…');
-  assert.equal(model.defaultExpanded, true);
+  assert.equal(model.currentActivity, 'Inspecting the activity renderer');
+  assert.equal(model.defaultExpanded, false);
   assert.equal(model.shouldRender, true);
-  assert.deepEqual(model.items, []);
+  assert.equal(model.items.length, 1);
+});
+
+test('uses the latest tool title as the current activity', () => {
+  const command = toolCall('Bash', { command: 'npm test' }, 'running');
+  command.id = 'command-1';
+  const model = buildActivityViewModel(assistantMessage({
+    content: '',
+    toolCalls: [command],
+    contentBlocks: [{ type: 'tool_use', toolId: command.id }],
+  }), true, 'running');
+
+  assert.equal(model.currentActivity, 'Ran npm test');
+  assert.equal(model.defaultExpanded, false);
 });
 
 test('uses persisted terminal state after the runtime is reloaded', () => {

@@ -456,14 +456,30 @@
 
 .windy-activity__title {
   color: var(--text-normal);
-  flex: 1;
+  flex: 0 0 auto;
   font-weight: var(--font-medium);
   min-width: 0;
 }
 
+.windy-activity__current {
+  color: var(--text-muted);
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.windy-activity__current::before {
+  color: var(--text-faint);
+  content: '·';
+  margin-right: 7px;
+}
+
 .windy-activity__count {
   color: var(--text-faint);
-  flex: 0 0 auto;
+  flex: 1;
+  text-align: right;
 }
 
 .windy-activity__body {
