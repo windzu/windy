@@ -54,6 +54,7 @@ export class WindyView extends ItemView {
   private composerDrafts = new Map<string, ComposerDraft>();
   private messageRenderer: MessageListRenderer | null = null;
   private messageRenderGeneration = 0;
+  private readonly activityExpansion = new Map<string, boolean>();
   private readonly messageScrollPositions = new MessageScrollPositionStore();
   private readonly clipboardImages: ClipboardImageStore;
 
@@ -234,7 +235,7 @@ export class WindyView extends ItemView {
     if (!snapshot?.conversation) {
       this.renderEmptyState(messages, page.basename);
     }
-    const renderer = new MessageListRenderer(this.app);
+    const renderer = new MessageListRenderer(this.app, this.activityExpansion);
     this.messageRenderer = renderer;
     this.addChild(renderer);
     const renderGeneration = ++this.messageRenderGeneration;

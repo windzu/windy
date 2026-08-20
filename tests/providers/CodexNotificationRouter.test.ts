@@ -63,3 +63,27 @@ test('streams nested exec-envelope tools as separate live activities', () => {
     },
   ]);
 });
+
+test('streams readable reasoning summaries without mixing in raw reasoning', () => {
+  const chunks: StreamChunk[] = [];
+  const router = new CodexNotificationRouter(chunk => chunks.push(chunk));
+  router.beginTurn({ isPlanTurn: false });
+
+  router.handleNotification('item/reasoning/textDelta', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'reasoning-1',
+    delta: 'Raw model reasoning.',
+  });
+  router.handleNotification('item/reasoning/summaryTextDelta', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'reasoning-1',
+    summaryIndex: 0,
+    delta: 'Inspecting the implementation.',
+  });
+
+  assert.deepEqual(chunks, [
+    { type: 'thinking', content: 'Inspecting the implementation.' },
+  ]);
+});

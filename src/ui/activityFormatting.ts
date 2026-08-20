@@ -24,6 +24,7 @@ export interface ActivityItem {
 export interface ActivityViewModel {
   state: ActivityState;
   summary: string;
+  currentActivity?: string;
   items: ActivityItem[];
   defaultExpanded: boolean;
   shouldRender: boolean;
@@ -47,12 +48,37 @@ export function buildActivityViewModel(
   return {
     state,
     summary: formatActivitySummary(state, message.durationSeconds),
+    currentActivity: state === 'running'
+      ? formatCurrentActivity(items.at(-1))
+      : undefined,
     items,
-    defaultExpanded: isActive,
+    defaultExpanded: false,
     shouldRender: isActive
       || items.length > 0
       || message.durationSeconds !== undefined,
   };
+}
+
+function formatCurrentActivity(item: ActivityItem | undefined): string | undefined {
+  if (!item) {
+    return undefined;
+  }
+  if (item.kind !== 'reasoning' || !item.detail) {
+    return item.title;
+  }
+
+  const firstLine = item.detail
+    .split(/\r?\n/)
+    .map(line => line.trim())
+    .find(Boolean);
+  if (!firstLine) {
+    return item.title;
+  }
+
+  const plainText = firstLine
+    .replace(/^[#>*_`\s-]+/, '')
+    .replace(/[*_`\s]+$/, '');
+  return truncateInline(plainText || item.title, 90);
 }
 
 export function formatActivitySummary(

@@ -117,7 +117,7 @@ export const DEFAULT_CODEX_PROVIDER_CONFIG: Readonly<CodexProviderConfig> = Obje
   discoveredModels: [],
   modelAliases: {},
   visibleModels: null,
-  reasoningSummary: 'detailed',
+  reasoningSummary: 'concise',
   environmentVariables: '',
   environmentHash: '',
   catalogTimestamp: 0,
@@ -125,6 +125,17 @@ export const DEFAULT_CODEX_PROVIDER_CONFIG: Readonly<CodexProviderConfig> = Obje
   installationMethodsByHost: {},
   wslDistroOverridesByHost: {},
 });
+
+function normalizeCodexReasoningSummary(value: unknown): CodexReasoningSummary {
+  if (value === 'none' || value === 'auto' || value === 'concise') {
+    return value;
+  }
+
+  // Windy previously persisted `detailed` without exposing a UI control for it.
+  // Treat that product default as legacy so existing users receive the quieter
+  // activity experience too.
+  return 'concise';
+}
 
 export const DEFAULT_CODEX_PROVIDER_SETTINGS: Readonly<CodexProviderSettings> = Object.freeze({
   ...DEFAULT_CODEX_PROVIDER_CONFIG,
@@ -398,9 +409,9 @@ function getCodexStoredConfig(
       getCodexAliasModelIds(visibleModels, discoveredModels),
     ),
     visibleModels,
-    reasoningSummary: (config.reasoningSummary as CodexReasoningSummary | undefined)
-      ?? (settings.codexReasoningSummary as CodexReasoningSummary | undefined)
-      ?? DEFAULT_CODEX_PROVIDER_CONFIG.reasoningSummary,
+    reasoningSummary: normalizeCodexReasoningSummary(
+      config.reasoningSummary ?? settings.codexReasoningSummary,
+    ),
     environmentVariables: (config.environmentVariables as string | undefined)
       ?? DEFAULT_CODEX_PROVIDER_CONFIG.environmentVariables,
     environmentHash: (config.environmentHash as string | undefined)
@@ -594,6 +605,7 @@ export function updateCodexProviderSettings(
       : DEFAULT_CODEX_PROVIDER_SETTINGS.wslDistroOverride,
     wslDistroOverridesByHost,
   };
+  next.reasoningSummary = normalizeCodexReasoningSummary(next.reasoningSummary);
 
   setProviderConfig(settings, 'codex', {
     enabled: next.enabled,

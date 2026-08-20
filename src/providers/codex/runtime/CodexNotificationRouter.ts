@@ -31,7 +31,6 @@ import type {
   McpToolCallItem,
   PlanDeltaNotification,
   ReasoningSummaryTextDeltaNotification,
-  ReasoningTextDeltaNotification,
   TokenUsageUpdatedNotification,
   TurnCompletedNotification,
   TurnPlanUpdatedNotification,
@@ -192,7 +191,8 @@ export class CodexNotificationRouter {
         this.onReasoningSummaryDelta(params as ReasoningSummaryTextDeltaNotification);
         break;
       case 'item/reasoning/textDelta':
-        this.onReasoningTextDelta(params as ReasoningTextDeltaNotification);
+        // Raw reasoning is a separate protocol channel from the readable
+        // summary. Windy intentionally renders only the user-facing summary.
         break;
       case 'item/reasoning/summaryPartAdded':
         break;
@@ -236,10 +236,6 @@ export class CodexNotificationRouter {
   }
 
   private onReasoningSummaryDelta(params: ReasoningSummaryTextDeltaNotification): void {
-    this.emit({ type: 'thinking', content: params.delta });
-  }
-
-  private onReasoningTextDelta(params: ReasoningTextDeltaNotification): void {
     this.emit({ type: 'thinking', content: params.delta });
   }
 

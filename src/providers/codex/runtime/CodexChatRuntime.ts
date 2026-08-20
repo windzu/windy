@@ -327,7 +327,15 @@ export class CodexChatRuntime implements ChatRuntime {
     const promptText = buildSystemPrompt(promptSettings);
 
     const enqueueChunk = (chunk: StreamChunk): void => {
-      this.chunkBuffer.push(chunk);
+      const previous = this.chunkBuffer.at(-1);
+      if (
+        (chunk.type === 'text' || chunk.type === 'thinking')
+        && previous?.type === chunk.type
+      ) {
+        previous.content += chunk.content;
+      } else {
+        this.chunkBuffer.push(chunk);
+      }
       if (this.chunkResolve) {
         this.chunkResolve();
         this.chunkResolve = null;
@@ -563,8 +571,8 @@ export class CodexChatRuntime implements ChatRuntime {
       while (true) {
         if (this.canceled) {
           // Drain remaining chunks before exiting
-          while (this.chunkBuffer.length > 0) {
-            const chunk = this.chunkBuffer.shift()!;
+          const pending = this.takeBufferedChunks();
+          for (const chunk of pending) {
             yield chunk;
             if (chunk.type === 'done') return;
           }
@@ -582,8 +590,8 @@ export class CodexChatRuntime implements ChatRuntime {
           });
         }
 
-        while (this.chunkBuffer.length > 0) {
-          const chunk = this.chunkBuffer.shift()!;
+        const pending = this.takeBufferedChunks();
+        for (const chunk of pending) {
           yield chunk;
           if (chunk.type === 'done') {
             return;
@@ -622,6 +630,12 @@ export class CodexChatRuntime implements ChatRuntime {
         }
       }
     }
+  }
+
+  private takeBufferedChunks(): StreamChunk[] {
+    const pending = this.chunkBuffer;
+    this.chunkBuffer = [];
+    return pending;
   }
 
   async steer(turn: PreparedChatTurn): Promise<boolean> {
