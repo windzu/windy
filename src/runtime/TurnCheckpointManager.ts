@@ -16,7 +16,7 @@ export class TurnCheckpointManager {
     this.lastProgressPersistedAt = Number.NEGATIVE_INFINITY;
   }
 
-  async persistProgressIfDue(conversation: Conversation): Promise<void> {
+  persistProgressIfDue(conversation: Conversation): void {
     const activeTurn = conversation.activeTurn;
     if (!activeTurn) {
       return;
@@ -28,7 +28,7 @@ export class TurnCheckpointManager {
     }
     this.lastProgressPersistedAt = now;
     this.captureSessionState(conversation);
-    await this.conversations.save(conversation);
+    this.persistWithoutBlocking(conversation);
   }
 
   updateActiveStatus(

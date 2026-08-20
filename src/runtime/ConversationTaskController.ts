@@ -13,6 +13,7 @@ import type {
 import type { ConversationStore } from '../conversations/ConversationRepository';
 import { deriveConversationTitle } from '../conversations/conversationTitle';
 import { TurnCheckpointManager } from './TurnCheckpointManager';
+import { TurnUpdateScheduler } from './TurnUpdateScheduler';
 import type {
   ConversationRuntimeSnapshot,
   ConversationTaskStatus,
@@ -31,6 +32,7 @@ export class ConversationTaskController {
   private removeUserInputAbortListener: (() => void) | null = null;
   private shuttingDown = false;
   private readonly checkpoints: TurnCheckpointManager;
+  private readonly updates: TurnUpdateScheduler;
 
   private constructor(
     private readonly conversations: ConversationStore,
@@ -50,6 +52,7 @@ export class ConversationTaskController {
       now,
       progressPersistIntervalMs,
     );
+    this.updates = new TurnUpdateScheduler(() => this.publishSnapshot());
     this.configureRuntimeCallbacks();
   }
 
@@ -193,8 +196,8 @@ export class ConversationTaskController {
           this.taskStatus = 'failed';
           this.error = chunk.content;
         }
-        await this.checkpoints.persistProgressIfDue(conversation);
-        this.emit();
+        this.checkpoints.persistProgressIfDue(conversation);
+        this.emitProgress();
       }
 
       if (this.shuttingDown) {
@@ -434,6 +437,7 @@ export class ConversationTaskController {
 
   cleanup(): void {
     this.shuttingDown = true;
+    this.updates.cancel();
     this.resolveApproval?.('cancel');
     this.resolveUserInput?.(null);
     this.clearPendingUserInput();
@@ -514,17 +518,11 @@ export class ConversationTaskController {
   ): void {
     if (chunk.type === 'text') {
       assistantMessage.content += chunk.content;
-      assistantMessage.contentBlocks?.push({
-        type: 'text',
-        content: chunk.content,
-      });
+      this.appendContentBlock(assistantMessage, 'text', chunk.content);
       return;
     }
     if (chunk.type === 'thinking') {
-      assistantMessage.contentBlocks?.push({
-        type: 'thinking',
-        content: chunk.content,
-      });
+      this.appendContentBlock(assistantMessage, 'thinking', chunk.content);
       return;
     }
     if (chunk.type === 'tool_use') {
@@ -587,7 +585,29 @@ export class ConversationTaskController {
   }
 
   private emit(): void {
+    this.updates.flush();
+  }
+
+  private emitProgress(): void {
+    this.updates.schedule();
+  }
+
+  private publishSnapshot(): void {
     this.onChange(this.snapshot());
+  }
+
+  private appendContentBlock(
+    assistantMessage: ChatMessage,
+    type: 'text' | 'thinking',
+    content: string,
+  ): void {
+    const blocks = assistantMessage.contentBlocks ??= [];
+    const previous = blocks.at(-1);
+    if (previous?.type === type) {
+      previous.content += content;
+      return;
+    }
+    blocks.push({ type, content });
   }
 
   private isCancelled(): boolean {

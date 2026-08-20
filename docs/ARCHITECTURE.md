@@ -120,3 +120,5 @@ runtime accepts only notifications matching its current `threadId` and
 - `src/ui`: remaining Obsidian presentation and user interaction.
 
 Future storage and UI work should preserve these ownership boundaries.
+The active-turn rate, persistence, and terminal-state contracts are specified
+in [Windy streaming architecture](./STREAMING_ARCHITECTURE.md).

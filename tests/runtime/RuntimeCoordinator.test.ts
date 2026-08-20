@@ -338,6 +338,138 @@ describe('RuntimeCoordinator', () => {
     ]);
   });
 
+  it('coalesces adjacent streaming deltas without losing content order', async () => {
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        scriptedChunks: [
+          { type: 'text', content: 'Hel' },
+          { type: 'text', content: 'lo' },
+          { type: 'thinking', content: 'Inspecting ' },
+          { type: 'thinking', content: 'the result.' },
+          { type: 'text', content: ' world' },
+        ],
+      }),
+    );
+
+    await coordinator.send('a', 'stream', 'A.md');
+    const assistant = (await coordinator.getSnapshot('a'))
+      .conversation?.messages.at(-1);
+
+    assert.equal(assistant?.content, 'Hello world');
+    assert.deepEqual(assistant?.contentBlocks, [
+      { type: 'text', content: 'Hello' },
+      { type: 'thinking', content: 'Inspecting the result.' },
+      { type: 'text', content: ' world' },
+    ]);
+  });
+
+  it('coalesces progress snapshots instead of emitting once per delta', async () => {
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        scriptedChunks: Array.from(
+          { length: 500 },
+          () => ({ type: 'text', content: 'x' } as StreamChunk),
+        ),
+      }),
+    );
+    let updates = 0;
+    coordinator.onChange(() => {
+      updates += 1;
+    });
+
+    await coordinator.send('a', 'stream heavily', 'A.md');
+
+    assert.ok(updates <= 5, `expected at most 5 snapshots, received ${updates}`);
+    assert.equal(
+      (await coordinator.getSnapshot('a')).conversation?.messages.at(-1)?.content.length,
+      500,
+    );
+  });
+
+  it('finishes a large bursty stream without a local completion backlog', async () => {
+    const existing = conversation('a');
+    existing.messages = Array.from({ length: 96 }, (_, index) => ({
+      id: `history-${index}`,
+      role: 'assistant' as const,
+      content: 'h'.repeat(32_768),
+      timestamp: index + 1,
+    }));
+    const conversations = new Map([['a', existing]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        scriptedChunks: Array.from(
+          { length: 1_500 },
+          () => ({ type: 'text', content: 'x' } as StreamChunk),
+        ),
+      }),
+    );
+    let updates = 0;
+    coordinator.onChange(() => {
+      updates += 1;
+    });
+
+    const startedAt = performance.now();
+    await coordinator.send('a', 'large stream', 'A.md');
+    const elapsedMs = performance.now() - startedAt;
+
+    assert.ok(updates <= 5, `expected at most 5 snapshots, received ${updates}`);
+    assert.ok(
+      elapsedMs < 1_000,
+      `expected local completion below 1 second, received ${elapsedMs.toFixed(1)}ms`,
+    );
+  });
+
+  it('does not block stream completion on an in-progress checkpoint write', async () => {
+    const gate = deferred();
+    const conversations = new Map([['a', conversation('a')]]);
+    let saveCount = 0;
+    const store: ConversationStore = {
+      async load(conversationId): Promise<Conversation | null> {
+        const value = conversations.get(conversationId);
+        return value ? structuredClone(value) : null;
+      },
+      async save(value): Promise<void> {
+        saveCount += 1;
+        if (saveCount === 2) {
+          await gate.promise;
+          return;
+        }
+        conversations.set(value.id, structuredClone(value));
+      },
+    };
+    const coordinator = new RuntimeCoordinator(
+      host,
+      store,
+      () => createFakeRuntime({
+        scriptedChunks: [{ type: 'text', content: 'done' }],
+      }),
+    );
+
+    const send = coordinator.send('a', 'checkpoint', 'A.md');
+    const result = await Promise.race([
+      send.then(() => 'completed'),
+      new Promise<'timed-out'>(resolve => {
+        setTimeout(() => resolve('timed-out'), 50);
+      }),
+    ]);
+    gate.resolve();
+    await send;
+
+    assert.equal(result, 'completed');
+    assert.equal(
+      (await coordinator.getSnapshot('a')).conversation?.messages.at(-1)?.turnStatus,
+      'completed',
+    );
+  });
+
   it('waits for user input and resumes with the submitted answers', async () => {
     const conversations = new Map([['a', conversation('a')]]);
     const coordinator = new RuntimeCoordinator(

@@ -32,7 +32,7 @@ export class RuntimeCoordinator {
     private readonly conversations: ConversationStore,
     private readonly createRuntime: (host: ProviderHost) => ChatRuntime,
     private readonly now: () => number = Date.now,
-    private readonly progressPersistIntervalMs = 250,
+    private readonly progressPersistIntervalMs = 1_000,
   ) {}
 
   onChange(listener: RuntimeListener): () => void {
