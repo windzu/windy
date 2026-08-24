@@ -1,7 +1,7 @@
 {
   "id": "windy",
   "name": "Windy",
-  "version": "0.4.4",
+  "version": "0.4.5",
   "minAppVersion": "1.7.2",
   "description": "A page-native agent that follows your active page.",
   "author": "windzu",
