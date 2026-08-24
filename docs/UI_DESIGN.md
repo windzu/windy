@@ -40,6 +40,30 @@ supports light and dark themes, and avoids hard-coded application surfaces.
   than generated through an additional model request.
 - Running, completed, blocked, and failed states remain distinguishable.
 
+#### Transcript following
+
+Transcript scrolling has two explicit interaction states:
+
+- `following`: while the viewport is at the bottom, new output keeps the
+  latest activity visible.
+- `browsing`: an upward wheel gesture or any manual scroll away from the
+  bottom immediately suspends following. Streaming updates and terminal task
+  transitions preserve the user's viewport.
+
+User input is authoritative. Following never resumes because of a timer or a
+render. It resumes only when the user naturally returns to the bottom or
+activates the visible `Back to latest` control. Scrolling downward without
+reaching the bottom remains in `browsing`.
+
+`Back to latest` uses an opaque, theme-specific warm surface with
+high-contrast text. A Windy accent outline and icon keep it visible in both
+light and dark themes without allowing transcript text to show through.
+
+The transcript scroll container remains mounted while snapshots render. Live
+updates may replace transcript contents, but they must not replace or detach
+the active scrolling surface because wheel and trackpad gestures retain their
+event target across a gesture.
+
 ### Composer
 
 - Context chips, textarea, and actions live inside one bounded surface.
@@ -85,6 +109,12 @@ not used as a large background or for ordinary body text.
 - The current page is visible exactly once in the shell or composer.
 - Empty-state actions create a conversation only after an explicit click.
 - The composer remains reachable while the transcript scrolls independently.
+- A user can interrupt automatic following with one upward scroll gesture.
+- Streaming and task completion preserve a manually selected viewport.
+- `Back to latest` is visible while following is suspended and restores it on
+  activation.
+- Naturally returning to the bottom restores following; partial downward
+  scrolling does not.
 - Tool states are readable when collapsed.
 - The custom Wind mark appears in the view, ribbon, and floating entry.
 - Light and dark screenshots are reviewed at 320, 420, and 560 pixel widths.

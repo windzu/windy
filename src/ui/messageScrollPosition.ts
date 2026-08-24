@@ -1,5 +1,5 @@
-const STICK_TO_BOTTOM_THRESHOLD = 72;
-const AT_BOTTOM_THRESHOLD = 1;
+const FOLLOW_BOTTOM_THRESHOLD = 24;
+const PROGRAMMATIC_SCROLL_TOLERANCE = 1;
 
 type ScrollContainer = Pick<
   HTMLElement,
@@ -28,10 +28,14 @@ export class MessageScrollPositionStore {
   ): MessageScrollPosition {
     if (this.activeKey && currentContainer) {
       const captured = captureMessageScrollPosition(currentContainer);
+      const previous = this.positions.get(this.activeKey);
       // Manual scrolling remains authoritative until the user reaches the bottom.
-      if (this.positions.get(this.activeKey)?.stickToBottom === false) {
-        captured.stickToBottom = (
-          distanceFromBottom(currentContainer) <= AT_BOTTOM_THRESHOLD
+      if (previous?.stickToBottom === false) {
+        const movedDown = currentContainer.scrollTop > (
+          previous.scrollTop + PROGRAMMATIC_SCROLL_TOLERANCE
+        );
+        captured.stickToBottom = movedDown && (
+          distanceFromBottom(currentContainer) <= FOLLOW_BOTTOM_THRESHOLD
         );
       }
       this.positions.set(
@@ -67,7 +71,15 @@ export class MessageScrollPositionStore {
     position: MessageScrollPosition,
   ): void {
     restoreMessageScrollPosition(container, position);
-    if (key === this.activeKey && container === this.activeContainer) {
+    if (
+      key
+      && key === this.activeKey
+      && container === this.activeContainer
+    ) {
+      this.positions.set(key, {
+        scrollTop: container.scrollTop,
+        stickToBottom: position.stickToBottom,
+      });
       this.expectedProgrammaticScrollTop = container.scrollTop;
     }
   }
@@ -87,16 +99,66 @@ export class MessageScrollPositionStore {
       this.expectedProgrammaticScrollTop !== null
       && Math.abs(
         container.scrollTop - this.expectedProgrammaticScrollTop,
-      ) <= AT_BOTTOM_THRESHOLD
+      ) <= PROGRAMMATIC_SCROLL_TOLERANCE
     ) {
       this.expectedProgrammaticScrollTop = null;
       return;
     }
     this.expectedProgrammaticScrollTop = null;
+    const previousPosition = this.positions.get(key);
+    const movedUp = previousPosition
+      && container.scrollTop < (
+        previousPosition.scrollTop - PROGRAMMATIC_SCROLL_TOLERANCE
+      );
     this.positions.set(key, {
       scrollTop: container.scrollTop,
-      stickToBottom: distanceFromBottom(container) <= AT_BOTTOM_THRESHOLD,
+      stickToBottom: !movedUp
+        && distanceFromBottom(container) <= FOLLOW_BOTTOM_THRESHOLD,
     });
+  }
+
+  pauseActiveFollowing(
+    key: string | null,
+    container: ScrollContainer,
+  ): void {
+    if (
+      !key
+      || key !== this.activeKey
+      || container !== this.activeContainer
+    ) {
+      return;
+    }
+    this.expectedProgrammaticScrollTop = null;
+    this.positions.set(key, {
+      scrollTop: container.scrollTop,
+      stickToBottom: false,
+    });
+  }
+
+  resumeActiveFollowing(
+    key: string | null,
+    container: ScrollContainer,
+  ): void {
+    if (
+      !key
+      || key !== this.activeKey
+      || container !== this.activeContainer
+    ) {
+      return;
+    }
+    const position = {
+      scrollTop: container.scrollTop,
+      stickToBottom: true,
+    };
+    this.positions.set(key, position);
+    this.restoreActivePosition(key, container, position);
+  }
+
+  isFollowing(key: string | null): boolean {
+    if (!key || key !== this.activeKey) {
+      return true;
+    }
+    return (this.positions.get(key) ?? DEFAULT_SCROLL_POSITION).stickToBottom;
   }
 
   getPosition(key: string | null): MessageScrollPosition {
@@ -118,7 +180,7 @@ export function captureMessageScrollPosition(
 
   return {
     scrollTop: container.scrollTop,
-    stickToBottom: distanceFromBottom(container) < STICK_TO_BOTTOM_THRESHOLD,
+    stickToBottom: distanceFromBottom(container) <= FOLLOW_BOTTOM_THRESHOLD,
   };
 }
 
