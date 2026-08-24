@@ -55,9 +55,9 @@ render. It resumes only when the user naturally returns to the bottom or
 activates the visible `Back to latest` control. Scrolling downward without
 reaching the bottom remains in `browsing`.
 
-`Back to latest` uses the active theme background and normal text color for
-contrast, with a Windy accent outline and icon for visibility in both light
-and dark themes.
+`Back to latest` uses an opaque, theme-specific warm surface with
+high-contrast text. A Windy accent outline and icon keep it visible in both
+light and dark themes without allowing transcript text to show through.
 
 The transcript scroll container remains mounted while snapshots render. Live
 updates may replace transcript contents, but they must not replace or detach

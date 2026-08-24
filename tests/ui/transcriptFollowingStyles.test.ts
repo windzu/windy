@@ -27,7 +27,11 @@ test('overlays the return control without changing transcript geometry', () => {
   );
   assert.match(
     buttonRule?.groups?.declarations ?? '',
-    /background:\s*var\(--background-primary\)/,
+    /background-color:\s*var\(--windy-latest-background\)/,
+  );
+  assert.match(
+    buttonRule?.groups?.declarations ?? '',
+    /background-image:\s*none/,
   );
   assert.match(
     buttonRule?.groups?.declarations ?? '',
@@ -35,11 +39,15 @@ test('overlays the return control without changing transcript geometry', () => {
   );
   assert.match(
     buttonRule?.groups?.declarations ?? '',
-    /color:\s*var\(--text-normal\)/,
+    /color:\s*var\(--windy-latest-foreground\)/,
+  );
+  assert.match(
+    buttonRule?.groups?.declarations ?? '',
+    /opacity:\s*1/,
   );
   assert.match(
     hoverRule?.groups?.declarations ?? '',
-    /background:\s*var\(--windy-accent-soft\)/,
+    /background-color:\s*var\(--windy-latest-background-hover\)/,
   );
   assert.match(
     iconRule?.groups?.declarations ?? '',
@@ -52,5 +60,13 @@ test('overlays the return control without changing transcript geometry', () => {
   assert.doesNotMatch(
     styles,
     /\.windy-view__transcript\.is-browsing\s+\.windy-view__messages\s*\{[^}]*padding/,
+  );
+  assert.match(
+    styles,
+    /--windy-latest-background:\s*#[0-9a-f]{6}/i,
+  );
+  assert.match(
+    styles,
+    /\.theme-dark\s+\.windy-view\s*\{[^}]*--windy-latest-background:\s*#[0-9a-f]{6}/i,
   );
 });
