@@ -111,6 +111,11 @@ provider session metadata, duration, and terminal status.
 ### Phase 2: incremental transcript rendering
 
 - Keep the Windy shell, header, history control, and composer mounted.
+- Keep the transcript scrolling surface mounted across progress snapshots so
+  an active wheel or trackpad gesture retains the same event target.
+- Treat automatic following as a user-controlled state: upward intent pauses
+  it, and only returning to the bottom or activating `Back to latest` resumes
+  it.
 - Reconcile messages by stable message id.
 - Patch only the active assistant content and current activity item.
 - Render terminal Markdown once when the turn completes.
@@ -125,6 +130,10 @@ provider session metadata, duration, and terminal status.
 - Progress checkpoint latency does not block provider chunk consumption.
 - Approval, user-input, cancellation, error, and completion states remain
   immediately observable.
+- Progress snapshots and terminal transitions do not move a transcript whose
+  user has suspended automatic following.
+- The active transcript scroll container retains object identity across
+  progress snapshots.
 - Interrupted-turn recovery retains all content present at the latest completed
   checkpoint.
 - `npm run typecheck && npm test && npm run build` passes.

@@ -137,6 +137,89 @@ test('manual scrolling overrides a pending bottom restoration', () => {
   assert.equal(store.getPosition('conversation-a').stickToBottom, false);
 });
 
+test('upward intent suspends following before the browser scroll event', () => {
+  const store = new MessageScrollPositionStore();
+  store.prepareForRender('conversation-a', null);
+  const current: TestScroller = {
+    clientHeight: 400,
+    scrollHeight: 1_200,
+    scrollTop: 800,
+  };
+  store.trackActiveContainer('conversation-a', current);
+
+  store.pauseActiveFollowing('conversation-a', current);
+
+  assert.equal(store.isFollowing('conversation-a'), false);
+  assert.deepEqual(store.getPosition('conversation-a'), {
+    scrollTop: 800,
+    stickToBottom: false,
+  });
+});
+
+test('a small upward gesture stays suspended inside the bottom tolerance', () => {
+  const store = new MessageScrollPositionStore();
+  store.prepareForRender('conversation-a', null);
+  const current: TestScroller = {
+    clientHeight: 400,
+    scrollHeight: 1_200,
+    scrollTop: 800,
+  };
+  store.trackActiveContainer('conversation-a', current);
+  store.pauseActiveFollowing('conversation-a', current);
+
+  current.scrollTop = 790;
+  store.recordActiveScroll('conversation-a', current);
+
+  assert.equal(store.isFollowing('conversation-a'), false);
+  assert.equal(store.getPosition('conversation-a').scrollTop, 790);
+  assert.deepEqual(store.prepareForRender('conversation-a', current), {
+    scrollTop: 790,
+    stickToBottom: false,
+  });
+  store.trackActiveContainer('conversation-a', current);
+
+  current.scrollTop = 800;
+  store.recordActiveScroll('conversation-a', current);
+
+  assert.equal(store.isFollowing('conversation-a'), true);
+});
+
+test('a manual scroll event can suspend following without wheel intent', () => {
+  const store = new MessageScrollPositionStore();
+  const position = store.prepareForRender('conversation-a', null);
+  const current: TestScroller = {
+    clientHeight: 400,
+    scrollHeight: 1_200,
+    scrollTop: 0,
+  };
+  store.trackActiveContainer('conversation-a', current);
+  store.restoreActivePosition('conversation-a', current, position);
+  store.recordActiveScroll('conversation-a', current);
+
+  current.scrollTop = 790;
+  store.recordActiveScroll('conversation-a', current);
+
+  assert.equal(store.isFollowing('conversation-a'), false);
+  assert.equal(store.getPosition('conversation-a').scrollTop, 790);
+});
+
+test('explicitly returning to latest restores automatic following', () => {
+  const store = new MessageScrollPositionStore();
+  store.prepareForRender('conversation-a', null);
+  const current: TestScroller = {
+    clientHeight: 400,
+    scrollHeight: 1_200,
+    scrollTop: 250,
+  };
+  store.trackActiveContainer('conversation-a', current);
+  store.pauseActiveFollowing('conversation-a', current);
+
+  store.resumeActiveFollowing('conversation-a', current);
+
+  assert.equal(store.isFollowing('conversation-a'), true);
+  assert.equal(current.scrollTop, 1_200);
+});
+
 test('does not treat a programmatic restoration as manual scrolling', () => {
   const store = new MessageScrollPositionStore();
   const position = store.prepareForRender('conversation-a', null);
@@ -154,13 +237,13 @@ test('does not treat a programmatic restoration as manual scrolling', () => {
   assert.equal(store.getPosition('conversation-a').stickToBottom, true);
 });
 
-test('keeps a manual near-bottom position across the next render', () => {
+test('keeps a manual position outside the bottom tolerance across renders', () => {
   const store = new MessageScrollPositionStore();
   store.prepareForRender('conversation-a', null);
   const current: TestScroller = {
     clientHeight: 400,
     scrollHeight: 1_200,
-    scrollTop: 790,
+    scrollTop: 770,
   };
   store.trackActiveContainer('conversation-a', current);
 
@@ -168,7 +251,7 @@ test('keeps a manual near-bottom position across the next render', () => {
   const nextPosition = store.prepareForRender('conversation-a', current);
 
   assert.deepEqual(nextPosition, {
-    scrollTop: 790,
+    scrollTop: 770,
     stickToBottom: false,
   });
 });
@@ -199,6 +282,41 @@ test('scrolling back to the bottom resumes automatic following', () => {
 
   assert.equal(replacement.scrollTop, 1_500);
   assert.equal(store.getPosition('conversation-a').stickToBottom, true);
+});
+
+test('partial downward scrolling keeps automatic following suspended', () => {
+  const store = new MessageScrollPositionStore();
+  store.prepareForRender('conversation-a', null);
+  const current: TestScroller = {
+    clientHeight: 400,
+    scrollHeight: 1_200,
+    scrollTop: 250,
+  };
+  store.trackActiveContainer('conversation-a', current);
+  store.pauseActiveFollowing('conversation-a', current);
+
+  current.scrollTop = 700;
+  store.recordActiveScroll('conversation-a', current);
+
+  assert.equal(store.isFollowing('conversation-a'), false);
+  assert.equal(store.getPosition('conversation-a').scrollTop, 700);
+});
+
+test('returning within the bottom tolerance resumes following', () => {
+  const store = new MessageScrollPositionStore();
+  store.prepareForRender('conversation-a', null);
+  const current: TestScroller = {
+    clientHeight: 400,
+    scrollHeight: 1_200,
+    scrollTop: 250,
+  };
+  store.trackActiveContainer('conversation-a', current);
+  store.pauseActiveFollowing('conversation-a', current);
+
+  current.scrollTop = 780;
+  store.recordActiveScroll('conversation-a', current);
+
+  assert.equal(store.isFollowing('conversation-a'), true);
 });
 
 test('ignores stale scroll events from an inactive conversation', () => {

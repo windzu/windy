@@ -54,6 +54,10 @@ export class WindyView extends ItemView {
   private composerDrafts = new Map<string, ComposerDraft>();
   private messageRenderer: MessageListRenderer | null = null;
   private messageRenderGeneration = 0;
+  private transcriptElement: HTMLElement | null = null;
+  private messagesElement: HTMLElement | null = null;
+  private backToLatestButton: HTMLButtonElement | null = null;
+  private activeScrollKey: string | null = null;
   private readonly activityExpansion = new Map<string, boolean>();
   private readonly messageScrollPositions = new MessageScrollPositionStore();
   private readonly clipboardImages: ClipboardImageStore;
@@ -183,9 +187,7 @@ export class WindyView extends ItemView {
     history: ConversationMeta[],
   ): void {
     const page = route.page;
-    const previousMessages = this.contentEl.querySelector<HTMLElement>(
-      '.windy-view__messages',
-    );
+    const previousMessages = this.messagesElement;
     const scrollKey = page
       ? snapshot?.conversation?.id ?? `draft:${page.path}`
       : null;
@@ -193,13 +195,13 @@ export class WindyView extends ItemView {
       scrollKey,
       previousMessages,
     );
+    this.activeScrollKey = scrollKey;
     this.disposeMessageRenderer();
-    this.contentEl.empty();
     this.contentEl.addClass('windy-view');
 
-    const header = this.contentEl.createDiv('windy-view__header');
-
     if (!page) {
+      this.resetConversationShell();
+      const header = this.contentEl.createDiv('windy-view__header');
       const topbar = header.createDiv('windy-view__conversation-bar');
       const brand = topbar.createDiv('windy-view__brand');
       const brandIcon = brand.createSpan('windy-view__brand-icon');
@@ -213,6 +215,10 @@ export class WindyView extends ItemView {
       });
       return;
     }
+
+    const { transcript, messages } = this.prepareTranscript();
+    const header = this.contentEl.createDiv('windy-view__header');
+    this.contentEl.insertBefore(header, transcript);
 
     renderConversationHistoryControl(header, {
       history,
@@ -231,7 +237,6 @@ export class WindyView extends ItemView {
         );
       },
     });
-    const messages = this.contentEl.createDiv('windy-view__messages');
     if (!snapshot?.conversation) {
       this.renderEmptyState(messages, page.basename);
     }
@@ -246,14 +251,12 @@ export class WindyView extends ItemView {
       snapshot?.status ?? 'idle',
     );
     this.messageScrollPositions.trackActiveContainer(scrollKey, messages);
-    messages.addEventListener('scroll', () => {
-      this.messageScrollPositions.recordActiveScroll(scrollKey, messages);
-    });
     this.messageScrollPositions.restoreActivePosition(
       scrollKey,
       messages,
       scrollPosition,
     );
+    this.syncTranscriptFollowingState();
     void renderMessages.then(() => {
       if (renderGeneration !== this.messageRenderGeneration) {
         return;
@@ -264,6 +267,7 @@ export class WindyView extends ItemView {
           messages,
           this.messageScrollPositions.getPosition(scrollKey),
         );
+        this.syncTranscriptFollowingState();
       });
     });
 
@@ -675,7 +679,7 @@ export class WindyView extends ItemView {
 
   private renderRouteError(error: unknown): void {
     this.disposeMessageRenderer();
-    this.contentEl.empty();
+    this.resetConversationShell();
     this.contentEl.addClass('windy-view');
     this.contentEl.createDiv({
       cls: 'windy-view__error',
@@ -691,6 +695,92 @@ export class WindyView extends ItemView {
     }
     this.removeChild(this.messageRenderer);
     this.messageRenderer = null;
+  }
+
+  private prepareTranscript(): {
+    transcript: HTMLElement;
+    messages: HTMLElement;
+  } {
+    if (
+      !this.transcriptElement
+      || !this.messagesElement
+      || !this.backToLatestButton
+      || this.transcriptElement.parentElement !== this.contentEl
+    ) {
+      this.contentEl.empty();
+      const transcript = this.contentEl.createDiv('windy-view__transcript');
+      const messages = transcript.createDiv('windy-view__messages');
+      const backToLatest = transcript.createEl('button', {
+        cls: 'windy-view__back-to-latest',
+        attr: {
+          type: 'button',
+          'aria-label': 'Back to latest',
+          title: 'Back to latest',
+        },
+      });
+      const icon = backToLatest.createSpan(
+        'windy-view__back-to-latest-icon',
+      );
+      setIcon(icon, 'arrow-down');
+      backToLatest.createSpan({ text: 'Back to latest' });
+      messages.addEventListener('wheel', event => {
+        if (event.deltaY >= 0) {
+          return;
+        }
+        this.messageScrollPositions.pauseActiveFollowing(
+          this.activeScrollKey,
+          messages,
+        );
+        this.syncTranscriptFollowingState();
+      }, { passive: true });
+      messages.addEventListener('scroll', () => {
+        this.messageScrollPositions.recordActiveScroll(
+          this.activeScrollKey,
+          messages,
+        );
+        this.syncTranscriptFollowingState();
+      });
+      backToLatest.addEventListener('click', () => {
+        this.messageScrollPositions.resumeActiveFollowing(
+          this.activeScrollKey,
+          messages,
+        );
+        this.syncTranscriptFollowingState();
+      });
+      this.transcriptElement = transcript;
+      this.messagesElement = messages;
+      this.backToLatestButton = backToLatest;
+    }
+
+    for (const child of Array.from(this.contentEl.children)) {
+      if (child !== this.transcriptElement) {
+        child.remove();
+      }
+    }
+    this.messagesElement.empty();
+    return {
+      transcript: this.transcriptElement,
+      messages: this.messagesElement,
+    };
+  }
+
+  private syncTranscriptFollowingState(): void {
+    if (!this.transcriptElement || !this.backToLatestButton) {
+      return;
+    }
+    const isBrowsing = !this.messageScrollPositions.isFollowing(
+      this.activeScrollKey,
+    );
+    this.transcriptElement.classList.toggle('is-browsing', isBrowsing);
+    this.backToLatestButton.hidden = !isBrowsing;
+  }
+
+  private resetConversationShell(): void {
+    this.contentEl.empty();
+    this.transcriptElement = null;
+    this.messagesElement = null;
+    this.backToLatestButton = null;
+    this.activeScrollKey = null;
   }
 
 }
