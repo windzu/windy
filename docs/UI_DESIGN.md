@@ -55,6 +55,10 @@ render. It resumes only when the user naturally returns to the bottom or
 activates the visible `Back to latest` control. Scrolling downward without
 reaching the bottom remains in `browsing`.
 
+`Back to latest` uses the active theme background and normal text color for
+contrast, with a Windy accent outline and icon for visibility in both light
+and dark themes.
+
 The transcript scroll container remains mounted while snapshots render. Live
 updates may replace transcript contents, but they must not replace or detach
 the active scrolling surface because wheel and trackpad gestures retain their

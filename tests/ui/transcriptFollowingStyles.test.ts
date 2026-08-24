@@ -14,10 +14,36 @@ test('overlays the return control without changing transcript geometry', () => {
   const hiddenRule = styles.match(
     /\.windy-view__back-to-latest\[hidden\]\s*\{(?<declarations>[^}]*)\}/,
   );
+  const hoverRule = styles.match(
+    /\.windy-view__back-to-latest:hover\s*\{(?<declarations>[^}]*)\}/,
+  );
+  const iconRule = styles.match(
+    /\.windy-view__back-to-latest-icon\s*\{(?<declarations>[^}]*)\}/,
+  );
 
   assert.match(
     buttonRule?.groups?.declarations ?? '',
     /position:\s*absolute/,
+  );
+  assert.match(
+    buttonRule?.groups?.declarations ?? '',
+    /background:\s*var\(--background-primary\)/,
+  );
+  assert.match(
+    buttonRule?.groups?.declarations ?? '',
+    /border:\s*1px solid var\(--windy-accent\)/,
+  );
+  assert.match(
+    buttonRule?.groups?.declarations ?? '',
+    /color:\s*var\(--text-normal\)/,
+  );
+  assert.match(
+    hoverRule?.groups?.declarations ?? '',
+    /background:\s*var\(--windy-accent-soft\)/,
+  );
+  assert.match(
+    iconRule?.groups?.declarations ?? '',
+    /color:\s*var\(--windy-accent\)/,
   );
   assert.match(
     hiddenRule?.groups?.declarations ?? '',

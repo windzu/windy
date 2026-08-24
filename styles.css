@@ -239,8 +239,8 @@
 
 .windy-view__back-to-latest {
   align-items: center;
-  background: var(--interactive-normal);
-  border: 1px solid var(--windy-border);
+  background: var(--background-primary);
+  border: 1px solid var(--windy-accent);
   border-radius: 999px;
   bottom: 14px;
   box-shadow: var(--shadow-s);
@@ -256,7 +256,7 @@
 }
 
 .windy-view__back-to-latest:hover {
-  background: var(--interactive-hover);
+  background: var(--windy-accent-soft);
 }
 
 .windy-view__back-to-latest[hidden] {
@@ -264,6 +264,7 @@
 }
 
 .windy-view__back-to-latest-icon {
+  color: var(--windy-accent);
   display: flex;
 }
 
