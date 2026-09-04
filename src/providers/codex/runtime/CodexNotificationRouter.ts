@@ -1,5 +1,9 @@
 import type { ChatTurnMetadata } from '../../../core/runtime/types';
-import type { StreamChunk, UsageInfo } from '../../../core/types';
+import type {
+  AssistantMessagePhase,
+  StreamChunk,
+  UsageInfo,
+} from '../../../core/types';
 import { extractCodexUserVisibleText, joinCodexUserTextParts } from '../codexUserText';
 import {
   appendCodexCommandOutput,
@@ -68,6 +72,7 @@ export class CodexNotificationRouter {
   private startedUserMessageIds = new Set<string>();
   private startedAgentMessageIds = new Set<string>();
   private agentMessageDeltaIds = new Set<string>();
+  private assistantMessagePhases = new Map<string, AssistantMessagePhase>();
   private streamedAssistantTurnText = '';
   private currentAssistantSegmentId: string | undefined;
   private currentAssistantSegmentText = '';
@@ -140,6 +145,7 @@ export class CodexNotificationRouter {
     this.startedUserMessageIds.clear();
     this.startedAgentMessageIds.clear();
     this.agentMessageDeltaIds.clear();
+    this.assistantMessagePhases.clear();
     this.resetAssistantTextTracking();
     this.rawStartedCallIds.clear();
     this.rawToolNamesByCallId.clear();
@@ -161,6 +167,7 @@ export class CodexNotificationRouter {
     this.startedUserMessageIds.clear();
     this.startedAgentMessageIds.clear();
     this.agentMessageDeltaIds.clear();
+    this.assistantMessagePhases.clear();
     this.resetAssistantTextTracking();
     this.rawStartedCallIds.clear();
     this.rawToolNamesByCallId.clear();
@@ -232,7 +239,12 @@ export class CodexNotificationRouter {
   private onAgentMessageDelta(params: AgentMessageDeltaNotification): void {
     this.agentMessageDeltaIds.add(params.itemId);
     this.appendAssistantText(params.delta, params.itemId);
-    this.emit({ type: 'text', content: params.delta });
+    this.emit({
+      type: 'text',
+      content: params.delta,
+      itemId: params.itemId,
+      phase: this.assistantMessagePhases.get(params.itemId) ?? 'final_answer',
+    });
   }
 
   private onReasoningSummaryDelta(params: ReasoningSummaryTextDeltaNotification): void {
@@ -241,7 +253,7 @@ export class CodexNotificationRouter {
 
   private onPlanDelta(params: PlanDeltaNotification): void {
     this.sawPlanDelta = true;
-    this.emit({ type: 'text', content: params.delta });
+    this.emit({ type: 'text', content: params.delta, phase: 'final_answer' });
   }
 
   private onItemStarted(params: ItemStartedNotification): void {
@@ -643,10 +655,21 @@ export class CodexNotificationRouter {
     const text = item.type === 'message'
       ? readAssistantMessageText(item)
       : firstString(item.text, item.message);
-    this.emitMissingAssistantSegmentText(text);
+    const itemId = firstString(item.id);
+    const phase = normalizeAssistantMessagePhase(item.phase);
+    if (itemId) {
+      this.assistantMessagePhases.set(itemId, phase);
+    }
+    this.emitMissingAssistantSegmentText(text, itemId, phase);
   }
 
-  private emitMissingAssistantSegmentText(text: string, itemId?: string): void {
+  private emitMissingAssistantSegmentText(
+    text: string,
+    itemId?: string,
+    phase: AssistantMessagePhase = itemId
+      ? this.assistantMessagePhases.get(itemId) ?? 'final_answer'
+      : 'final_answer',
+  ): void {
     this.claimAssistantSegment(itemId);
     const missingText = normalizeAgentMessageCompletionText(
       text,
@@ -660,7 +683,7 @@ export class CodexNotificationRouter {
     }
 
     this.streamedAssistantTurnText += missingText;
-    this.emit({ type: 'text', content: missingText });
+    this.emit({ type: 'text', content: missingText, itemId, phase });
   }
 
   private emitMissingAssistantTurnText(text: string): void {
@@ -674,7 +697,7 @@ export class CodexNotificationRouter {
 
     this.streamedAssistantTurnText += missingText;
     this.currentAssistantSegmentText += missingText;
-    this.emit({ type: 'text', content: missingText });
+    this.emit({ type: 'text', content: missingText, phase: 'final_answer' });
   }
 
   private consumeRawToolOutput(callId: string): RawToolResult | undefined {
@@ -942,8 +965,14 @@ export class CodexNotificationRouter {
     }
 
     this.startedAgentMessageIds.add(item.id);
+    const phase = normalizeAssistantMessagePhase(item.phase);
+    this.assistantMessagePhases.set(item.id, phase);
     this.claimAssistantSegment(item.id);
-    this.emit({ type: 'assistant_message_start', itemId: item.id });
+    this.emit({
+      type: 'assistant_message_start',
+      itemId: item.id,
+      phase,
+    });
   }
 
   private completeAgentMessage(item: AgentMessageItem): void {
@@ -955,7 +984,11 @@ export class CodexNotificationRouter {
       return;
     }
 
-    this.emitMissingAssistantSegmentText(item.text, item.id);
+    this.emitMissingAssistantSegmentText(
+      item.text,
+      item.id,
+      normalizeAssistantMessagePhase(item.phase),
+    );
   }
 
   private extractUserMessageText(content: UserInput[]): string {
@@ -1050,6 +1083,10 @@ function firstString(...values: unknown[]): string {
     }
   }
   return '';
+}
+
+function normalizeAssistantMessagePhase(value: unknown): AssistantMessagePhase {
+  return value === 'commentary' ? 'commentary' : 'final_answer';
 }
 
 function getItemId(item: { id?: string } | Record<string, unknown>): string | undefined {

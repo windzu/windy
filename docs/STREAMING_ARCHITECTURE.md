@@ -56,6 +56,10 @@ Adjacent `text` and `thinking` deltas are appended to the latest compatible
 content block. A tool, context-compaction, or different block type creates a
 semantic boundary, so activity order remains lossless.
 
+Assistant text also preserves the provider item id and user-visible phase.
+`commentary` participates in the ordered activity trail; `final_answer`
+remains the durable assistant answer used as the primary transcript content.
+
 The accumulated assistant `content` remains the final answer source. Ordered
 `contentBlocks` remain the activity source; they store semantic segments rather
 than transport packet boundaries.
@@ -88,6 +92,11 @@ reported as durably complete.
 Terminal state cancels any pending progress snapshot and emits the latest state
 immediately. The final save contains all coalesced content, tool results, usage,
 provider session metadata, duration, and terminal status.
+
+The active elapsed-time label derives from the persisted turn start time. Its
+one-second UI clock patches only the label, does not publish a runtime snapshot,
+and does not write a progress checkpoint. Terminal transitions replace it with
+the authoritative stored duration.
 
 ## 4. Alternatives
 

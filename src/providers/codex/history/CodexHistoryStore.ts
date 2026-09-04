@@ -4,7 +4,13 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import type { ChatMessage, ContentBlock, ImageAttachment, ToolCallInfo } from '../../../core/types';
+import type {
+  AssistantMessagePhase,
+  ChatMessage,
+  ContentBlock,
+  ImageAttachment,
+  ToolCallInfo,
+} from '../../../core/types';
 import { extractUserDisplayContent } from '../../../utils/context';
 import {
   buildImageAttachmentFromBase64,
@@ -53,6 +59,7 @@ interface CodexItem {
   message?: string;
   server?: string;
   tool?: string;
+  phase?: string;
 }
 
 interface PersistedMessagePart {
@@ -63,8 +70,10 @@ interface PersistedMessagePart {
 
 interface PersistedMessagePayload {
   type: 'message';
+  id?: string;
   role?: string;
   content?: PersistedMessagePart[];
+  phase?: string;
 }
 
 interface PersistedReasoningPayload {
@@ -117,6 +126,7 @@ interface PersistedEventPayload {
   type?: string;
   text?: string;
   message?: string;
+  phase?: string;
 }
 
 interface PersistedCompactionPayload {
@@ -280,13 +290,25 @@ function appendOrderedTextChunk(
   bubble: CodexAssistantBubble,
   type: 'text' | 'thinking',
   value: string,
+  phase?: AssistantMessagePhase,
+  itemId?: string,
 ): void {
   const trimmed = value.trim();
   if (!trimmed) return;
 
   const chunks = type === 'text' ? bubble.contentChunks : bubble.thinkingChunks;
   const lastBlock = bubble.contentBlocks[bubble.contentBlocks.length - 1];
-  if (lastBlock?.type === type) {
+  if (
+    lastBlock?.type === type
+    && (
+      type !== 'text'
+      || (
+        lastBlock.type === 'text'
+        && lastBlock.phase === phase
+        && lastBlock.itemId === itemId
+      )
+    )
+  ) {
     if (chunks[chunks.length - 1] === trimmed) return;
 
     chunks.push(trimmed);
@@ -295,6 +317,15 @@ function appendOrderedTextChunk(
   }
 
   chunks.push(trimmed);
+  if (type === 'text') {
+    bubble.contentBlocks.push({
+      type,
+      content: trimmed,
+      ...(phase ? { phase } : {}),
+      ...(itemId ? { itemId } : {}),
+    });
+    return;
+  }
   bubble.contentBlocks.push({ type, content: trimmed });
 }
 
@@ -302,14 +333,27 @@ function replaceLatestOrderedTextChunk(
   bubble: CodexAssistantBubble,
   type: 'text' | 'thinking',
   value: string,
+  phase?: AssistantMessagePhase,
+  itemId?: string,
 ): void {
   const trimmed = value.trim();
   if (!trimmed) return;
 
   const chunks = type === 'text' ? bubble.contentChunks : bubble.thinkingChunks;
   const lastBlock = bubble.contentBlocks[bubble.contentBlocks.length - 1];
-  if (lastBlock?.type !== type || chunks.length === 0) {
-    appendOrderedTextChunk(bubble, type, trimmed);
+  if (
+    lastBlock?.type !== type
+    || chunks.length === 0
+    || (
+      type === 'text'
+      && (
+        lastBlock.type !== 'text'
+        || lastBlock.phase !== phase
+        || lastBlock.itemId !== itemId
+      )
+    )
+  ) {
+    appendOrderedTextChunk(bubble, type, trimmed, phase, itemId);
     return;
   }
 
@@ -430,6 +474,10 @@ function parseTimestamp(value: unknown): number {
 
   const parsed = Date.parse(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function normalizeAssistantMessagePhase(value: unknown): AssistantMessagePhase {
+  return value === 'commentary' ? 'commentary' : 'final_answer';
 }
 
 function parseSessionRecord(line: string): ParsedSessionRecord | null {
@@ -1123,7 +1171,13 @@ function processPersistedPayload(
         const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
         const bubble = ensureAssistantBubble(turn, timestamp);
         if (text) {
-          appendOrderedTextChunk(bubble, 'text', text);
+          appendOrderedTextChunk(
+            bubble,
+            'text',
+            text,
+            normalizeAssistantMessagePhase(messagePayload.phase),
+            messagePayload.id,
+          );
         }
       }
       break;
@@ -1239,7 +1293,12 @@ function processEventMsg(
       const bubble = ensureAssistantBubble(turn, timestamp);
       const msg = payload.message;
       if (typeof msg === 'string') {
-        appendOrderedTextChunk(bubble, 'text', msg);
+        appendOrderedTextChunk(
+          bubble,
+          'text',
+          msg,
+          normalizeAssistantMessagePhase(payload.phase),
+        );
       }
       break;
     }
@@ -1311,14 +1370,30 @@ function flushBubbleTurnMessages(
   const assistantMessages: ChatMessage[] = [];
 
   for (const bubble of turn.assistantBubbles) {
-    const contentText = bubble.contentChunks.join('\n\n');
+    const contentText = bubble.contentBlocks
+      .filter(
+        (block): block is Extract<ContentBlock, { type: 'text' }> => (
+          block.type === 'text' && block.phase !== 'commentary'
+        ),
+      )
+      .map(block => block.content)
+      .join('\n\n');
     const thinkingText = bubble.thinkingChunks.join('\n\n');
     const hasContent = contentText.trim().length > 0;
+    const hasCommentary = bubble.contentBlocks.some(
+      block => block.type === 'text' && block.phase === 'commentary',
+    );
     const hasThinking = thinkingText.trim().length > 0;
     const hasToolCalls = bubble.toolCalls.length > 0;
     const hasCompactBoundary = bubble.contentBlocks.some(b => b.type === 'context_compacted');
 
-    if (!hasContent && !hasThinking && !hasToolCalls && !hasCompactBoundary) {
+    if (
+      !hasContent
+      && !hasCommentary
+      && !hasThinking
+      && !hasToolCalls
+      && !hasCompactBoundary
+    ) {
       if (bubble.interrupted) {
         messages.push({
           id: `codex-msg-${msgIndex}`,
@@ -1781,7 +1856,13 @@ function processLegacyItemInModernContext(
       if ((eventType === 'item.updated' || eventType === 'item.completed') && item.text) {
         const turn = ensureTurn(ctx.turns, ctx.turnOrder, nextTurnId(ctx), ctx.currentTurnId, timestamp);
         const bubble = ensureAssistantBubble(turn, timestamp);
-        replaceLatestOrderedTextChunk(bubble, 'text', item.text);
+        replaceLatestOrderedTextChunk(
+          bubble,
+          'text',
+          item.text,
+          normalizeAssistantMessagePhase(item.phase),
+          item.id,
+        );
       }
       break;
     }

@@ -39,9 +39,17 @@ export interface FileAttachment {
   source: 'picker' | 'drop' | 'paste';
 }
 
+/** User-visible phase for assistant text emitted during a turn. */
+export type AssistantMessagePhase = 'commentary' | 'final_answer';
+
 /** Content block for preserving streaming order in messages. */
 export type ContentBlock =
-  | { type: 'text'; content: string }
+  | {
+      type: 'text';
+      content: string;
+      phase?: AssistantMessagePhase;
+      itemId?: string;
+    }
   | { type: 'tool_use'; toolId: string }
   | { type: 'thinking'; content: string; durationSeconds?: number }
   | { type: 'subagent'; subagentId: string; mode?: SubagentMode }
@@ -186,8 +194,17 @@ export interface SessionMetadata {
  */
 export type StreamChunk =
   | { type: 'user_message_start'; content: string; itemId?: string }
-  | { type: 'assistant_message_start'; itemId?: string }
-  | { type: 'text'; content: string }
+  | {
+      type: 'assistant_message_start';
+      itemId?: string;
+      phase?: AssistantMessagePhase;
+    }
+  | {
+      type: 'text';
+      content: string;
+      itemId?: string;
+      phase?: AssistantMessagePhase;
+    }
   | { type: 'thinking'; content: string }
   | {
       type: 'tool_use';

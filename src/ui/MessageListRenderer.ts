@@ -23,7 +23,10 @@ import {
 } from './messageFormatting';
 import {
   type ActivityItem,
+  type ActivityState,
   buildActivityViewModel,
+  elapsedTurnSeconds,
+  formatActivitySummary,
 } from './activityFormatting';
 import { WINDY_NAV_ICON } from './icons';
 import {
@@ -38,6 +41,7 @@ export class MessageListRenderer extends Component {
   constructor(
     private readonly app: App,
     private readonly activityExpansion = new Map<string, boolean>(),
+    private readonly now: () => number = Date.now,
   ) {
     super();
   }
@@ -47,6 +51,7 @@ export class MessageListRenderer extends Component {
     messages: ChatMessage[],
     sourcePath: string,
     status: ConversationTaskStatus,
+    activeTurnStartedAt?: number,
   ): Promise<void> {
     const markdownRenders: Promise<void>[] = [];
     let lastAssistantIndex = -1;
@@ -73,13 +78,17 @@ export class MessageListRenderer extends Component {
           message,
           index === lastAssistantIndex,
           status,
+          index === lastAssistantIndex ? activeTurnStartedAt : undefined,
         );
+      }
+      const content = message.displayContent
+        ?? message.content;
+      if (message.role === 'assistant' && !content) {
+        continue;
       }
       const contentElement = messageElement.createDiv(
         'windy-message__content',
       );
-      const content = message.displayContent
-        ?? (message.content || (message.role === 'assistant' ? '…' : ''));
       const isLiveAssistant = (
         message.role === 'assistant'
         && index === messages.length - 1
@@ -221,11 +230,16 @@ export class MessageListRenderer extends Component {
     message: ChatMessage,
     isLatestAssistant: boolean,
     status: ConversationTaskStatus,
+    activeTurnStartedAt?: number,
   ): void {
+    const liveElapsedSeconds = activeTurnStartedAt === undefined
+      ? undefined
+      : elapsedTurnSeconds(activeTurnStartedAt, this.now());
     const activity = buildActivityViewModel(
       message,
       isLatestAssistant,
       status,
+      liveElapsedSeconds,
     );
     if (!activity.shouldRender) {
       return;
@@ -246,10 +260,22 @@ export class MessageListRenderer extends Component {
     setIcon(disclosure, 'chevron-right');
     const stateIcon = summary.createSpan('windy-activity__state-icon');
     setIcon(stateIcon, activityStateIcon(activity.state));
-    summary.createSpan({
+    const title = summary.createSpan({
       cls: 'windy-activity__title',
       text: activity.summary,
+      attr: { 'aria-live': 'off' },
     });
+    if (activeTurnStartedAt !== undefined && isActiveState(activity.state)) {
+      const view = messageElement.ownerDocument.defaultView;
+      if (view) {
+        this.registerInterval(view.setInterval(() => {
+          title.setText(formatActivitySummary(
+            activity.state,
+            elapsedTurnSeconds(activeTurnStartedAt, this.now()),
+          ));
+        }, 1_000));
+      }
+    }
     if (activity.currentActivity) {
       summary.createSpan({
         cls: 'windy-activity__current',
@@ -278,6 +304,13 @@ export class MessageListRenderer extends Component {
   }
 
   private renderActivityItem(container: HTMLElement, item: ActivityItem): void {
+    if (item.kind === 'commentary') {
+      container.createDiv({
+        cls: 'windy-activity__commentary',
+        text: item.detail ?? item.title,
+      });
+      return;
+    }
     if (item.toolCall) {
       this.renderTool(container, item.toolCall, item.title);
       return;
@@ -366,6 +399,12 @@ export class MessageListRenderer extends Component {
       text: formatToolPayload(value),
     });
   }
+}
+
+function isActiveState(state: ActivityState): boolean {
+  return state === 'running'
+    || state === 'waiting-approval'
+    || state === 'waiting-input';
 }
 
 function activityStateIcon(state: string): string {

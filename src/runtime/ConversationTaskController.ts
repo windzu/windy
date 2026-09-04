@@ -517,8 +517,16 @@ export class ConversationTaskController {
     chunk: StreamChunk,
   ): void {
     if (chunk.type === 'text') {
-      assistantMessage.content += chunk.content;
-      this.appendContentBlock(assistantMessage, 'text', chunk.content);
+      if (chunk.phase !== 'commentary') {
+        assistantMessage.content += chunk.content;
+      }
+      this.appendContentBlock(
+        assistantMessage,
+        'text',
+        chunk.content,
+        chunk.phase,
+        chunk.itemId,
+      );
       return;
     }
     if (chunk.type === 'thinking') {
@@ -600,11 +608,32 @@ export class ConversationTaskController {
     assistantMessage: ChatMessage,
     type: 'text' | 'thinking',
     content: string,
+    phase?: Extract<StreamChunk, { type: 'text' }>['phase'],
+    itemId?: string,
   ): void {
     const blocks = assistantMessage.contentBlocks ??= [];
     const previous = blocks.at(-1);
-    if (previous?.type === type) {
+    if (
+      previous?.type === type
+      && (
+        type !== 'text'
+        || (
+          previous.type === 'text'
+          && previous.phase === phase
+          && previous.itemId === itemId
+        )
+      )
+    ) {
       previous.content += content;
+      return;
+    }
+    if (type === 'text') {
+      blocks.push({
+        type,
+        content,
+        ...(phase ? { phase } : {}),
+        ...(itemId ? { itemId } : {}),
+      });
       return;
     }
     blocks.push({ type, content });
