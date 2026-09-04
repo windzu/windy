@@ -245,19 +245,33 @@ export class MessageListRenderer extends Component {
       return;
     }
 
+    const isLive = isActiveState(activity.state);
+
     const details = messageElement.createEl('details', {
-      cls: `windy-activity windy-activity--${activity.state}`,
+      cls: `windy-activity windy-activity--${activity.state}${
+        isLive ? ' windy-activity--live-row' : ''
+      }`,
     });
-    details.open = this.activityExpansion.get(message.id)
-      ?? activity.defaultExpanded;
+    details.open = !isLive && (
+      this.activityExpansion.get(message.id) ?? activity.defaultExpanded
+    );
     details.addEventListener('toggle', () => {
-      this.activityExpansion.set(message.id, details.open);
+      if (isLive) {
+        details.open = false;
+      } else {
+        this.activityExpansion.set(message.id, details.open);
+      }
     });
     const summary = details.createEl('summary', {
       cls: 'windy-activity__summary',
     });
-    const disclosure = summary.createSpan('windy-activity__disclosure');
-    setIcon(disclosure, 'chevron-right');
+    if (isLive) {
+      summary.addEventListener('click', event => event.preventDefault());
+    }
+    if (!isLive) {
+      const disclosure = summary.createSpan('windy-activity__disclosure');
+      setIcon(disclosure, 'chevron-right');
+    }
     const stateIcon = summary.createSpan('windy-activity__state-icon');
     setIcon(stateIcon, activityStateIcon(activity.state));
     const title = summary.createSpan({
@@ -286,6 +300,10 @@ export class MessageListRenderer extends Component {
         cls: 'windy-activity__count',
         text: `${activity.items.length} ${activity.items.length === 1 ? 'activity' : 'activities'}`,
       });
+    }
+
+    if (isLive) {
+      return;
     }
 
     const body = details.createDiv('windy-activity__body');

@@ -538,6 +538,10 @@
   color: var(--text-normal);
 }
 
+.windy-activity--live-row > .windy-activity__summary {
+  cursor: default;
+}
+
 .windy-activity__disclosure,
 .windy-activity__state-icon {
   display: flex;

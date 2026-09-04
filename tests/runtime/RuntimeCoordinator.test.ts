@@ -19,7 +19,13 @@ import type { ConversationStore } from '../../src/conversations/ConversationRepo
 import { RuntimeCoordinator } from '../../src/runtime/RuntimeCoordinator';
 
 class MemoryConversationStore implements ConversationStore {
+  private failNextSave = false;
+
   constructor(private readonly conversations: Map<string, Conversation>) {}
+
+  rejectNextSave(): void {
+    this.failNextSave = true;
+  }
 
   async load(conversationId: string): Promise<Conversation | null> {
     const conversation = this.conversations.get(conversationId);
@@ -27,6 +33,10 @@ class MemoryConversationStore implements ConversationStore {
   }
 
   async save(conversation: Conversation): Promise<void> {
+    if (this.failNextSave) {
+      this.failNextSave = false;
+      throw new Error('save failed');
+    }
     this.conversations.set(conversation.id, structuredClone(conversation));
   }
 }
@@ -68,6 +78,7 @@ function createFakeRuntime(options: {
   steeredRequests?: ChatTurnRequest[];
   steerAccepted?: boolean;
   steerError?: Error;
+  steerGate?: Promise<void>;
   afterGateChunks?: StreamChunk[];
   steerChunksBeforeAccept?: StreamChunk[];
 }): ChatRuntime {
@@ -179,6 +190,7 @@ function createFakeRuntime(options: {
           await steerChunksDelivered.promise;
           setImmediate(releaseSteeredQuery.resolve);
         }
+        await options.steerGate;
         return options.steerAccepted ?? false;
       },
     });
@@ -655,6 +667,15 @@ describe('RuntimeCoordinator', () => {
       queued.conversation?.queuedTurns?.map(turn => turn.content),
       ['second', 'third'],
     );
+    const secondTurnId = queued.conversation?.queuedTurns?.[0]?.id;
+    assert.ok(secondTurnId);
+    await coordinator.cancelQueuedTurn('a', secondTurnId);
+    assert.deepEqual(
+      (await coordinator.getSnapshot('a')).conversation?.queuedTurns?.map(
+        turn => turn.content,
+      ),
+      ['third'],
+    );
 
     gate.resolve();
     await first;
@@ -662,20 +683,53 @@ describe('RuntimeCoordinator', () => {
     const completed = await coordinator.getSnapshot('a');
     assert.deepEqual(
       preparedRequests.map(request => request.text),
-      ['first', 'second', 'third'],
+      ['first', 'third'],
     );
     assert.deepEqual(
       completed.conversation?.messages.map(message => message.content),
       [
         'first',
         'response:a',
-        'second',
-        'response:a',
         'third',
         'response:a',
       ],
     );
     assert.deepEqual(completed.conversation?.queuedTurns, []);
+  });
+
+  it('keeps a queued turn when undo persistence fails', async () => {
+    const gate = deferred();
+    const conversations = new Map([['a', conversation('a')]]);
+    const store = new MemoryConversationStore(conversations);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      store,
+      () => createFakeRuntime({
+        gateByConversation: new Map([['a', gate.promise]]),
+      }),
+    );
+
+    const first = coordinator.send('a', 'first', 'A.md');
+    await new Promise(resolve => setImmediate(resolve));
+    await coordinator.send('a', 'second', 'A.md');
+    const queuedTurnId = (await coordinator.getSnapshot('a'))
+      .conversation?.queuedTurns?.[0]?.id;
+    assert.ok(queuedTurnId);
+
+    store.rejectNextSave();
+    await assert.rejects(
+      coordinator.cancelQueuedTurn('a', queuedTurnId),
+      /save failed/,
+    );
+    assert.deepEqual(
+      (await coordinator.getSnapshot('a')).conversation?.queuedTurns?.map(
+        turn => turn.content,
+      ),
+      ['second'],
+    );
+
+    gate.resolve();
+    await first;
   });
 
   it('steers one queued turn exactly once and removes it from the FIFO', async () => {
@@ -747,6 +801,40 @@ describe('RuntimeCoordinator', () => {
         ['assistant', 'response after steering'],
       ],
     );
+  });
+
+  it('does not undo a queued turn while provider steering is in flight', async () => {
+    const queryGate = deferred();
+    const steerGate = deferred();
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        gateByConversation: new Map([['a', queryGate.promise]]),
+        steerAccepted: true,
+        steerGate: steerGate.promise,
+      }),
+    );
+
+    const first = coordinator.send('a', 'first', 'A.md');
+    await new Promise(resolve => setImmediate(resolve));
+    await coordinator.send('a', 'urgent correction', 'A.md');
+    const queuedTurnId = (await coordinator.getSnapshot('a'))
+      .conversation?.queuedTurns?.[0]?.id;
+    assert.ok(queuedTurnId);
+
+    const steering = coordinator.steerQueuedTurn('a', queuedTurnId);
+    await new Promise(resolve => setImmediate(resolve));
+    await assert.rejects(
+      coordinator.cancelQueuedTurn('a', queuedTurnId),
+      /cannot be undone while it is being steered/,
+    );
+
+    steerGate.resolve();
+    await steering;
+    queryGate.resolve();
+    await first;
   });
 
   it('keeps a queued turn when the provider cannot accept steering', async () => {

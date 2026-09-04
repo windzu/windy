@@ -208,6 +208,31 @@ export class ConversationTaskController {
     }
   }
 
+  async cancelQueuedTurn(queuedTurnId: string): Promise<void> {
+    if (!this.conversation) {
+      throw new Error(`Conversation "${this.conversationId}" does not exist.`);
+    }
+    if (this.steeringQueuedTurnIds.has(queuedTurnId)) {
+      throw new Error('A message cannot be undone while it is being steered.');
+    }
+    const queuedTurns = this.conversation.queuedTurns ?? [];
+    const queuedIndex = queuedTurns.findIndex(turn => turn.id === queuedTurnId);
+    if (queuedIndex < 0) {
+      throw new Error('This message is no longer queued.');
+    }
+
+    const [removedTurn] = queuedTurns.splice(queuedIndex, 1);
+    try {
+      await this.conversations.save(this.conversation);
+    } catch (error) {
+      if (removedTurn) {
+        queuedTurns.splice(queuedIndex, 0, removedTurn);
+      }
+      throw error;
+    }
+    this.emit();
+  }
+
   private async enqueueTurn(turn: QueuedTurn): Promise<void> {
     const conversation = this.conversation!;
     (conversation.queuedTurns ??= []).push(turn);

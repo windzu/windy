@@ -115,7 +115,7 @@ test('preserves activity order while coalescing reasoning deltas', () => {
   );
 });
 
-test('keeps active turns expanded while reporting live elapsed time', () => {
+test('keeps active turns on one collapsed live row while reporting elapsed time', () => {
   const model = buildActivityViewModel(
     assistantMessage({
       content: '',
@@ -130,7 +130,7 @@ test('keeps active turns expanded while reporting live elapsed time', () => {
 
   assert.equal(model.summary, 'Working for 12s');
   assert.equal(model.currentActivity, 'Inspecting the activity renderer');
-  assert.equal(model.defaultExpanded, true);
+  assert.equal(model.defaultExpanded, false);
   assert.equal(model.shouldRender, true);
   assert.equal(model.items.length, 1);
 });
@@ -145,7 +145,7 @@ test('uses the latest tool title as the current activity', () => {
   }), true, 'running');
 
   assert.equal(model.currentActivity, 'Ran npm test');
-  assert.equal(model.defaultExpanded, true);
+  assert.equal(model.defaultExpanded, false);
 });
 
 test('keeps commentary and tool activity in provider order', () => {

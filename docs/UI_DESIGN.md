@@ -31,11 +31,12 @@ supports light and dark themes, and avoids hard-coded application surfaces.
 - User requests are compact and visually distinct.
 - Assistant answers use the full reading width without a surrounding card.
 - Reasoning and tool calls form one ordered, collapsible activity trail.
-- Active work keeps the activity trail expanded so commentary and normalized
-  actions remain visible in provider order.
+- Active work occupies one compact live row. Its latest commentary, reasoning,
+  or tool action replaces the previous label instead of adding visible rows.
 - The active summary shows elapsed time from user submission and updates once
   per second without rerendering or persisting the transcript.
-- Terminal turns collapse to a duration and activity-count summary.
+- Terminal turns keep a duration and activity-count summary whose complete
+  ordered activity trail can be expanded on demand.
 - Codex commentary remains inside the activity trail, while `final_answer`
   content renders as the primary assistant answer.
 - Codex activity renders concise, user-facing reasoning summaries; raw model
@@ -74,6 +75,9 @@ event target across a gesture.
 - The primary page is pinned; additional pages can be added with `@`.
 - Model selection stays visible, while provider-specific detail stays in menus.
 - Send and stop share one primary action position.
+- Runtime snapshots for the same conversation retain the exact composer DOM
+  node. Focus, caret, IME composition, references, files, and an unfinished
+  draft therefore remain owned by the user's input session.
 
 ## Visual tokens
 
@@ -96,6 +100,9 @@ not used as a large background or for ordinary body text.
   references, and file attachments remain available for the next message.
 - Sending while a turn is active creates a visible queued card. Queued cards
   show FIFO position and run automatically after the active turn ends.
+- Every queued card that has not begun steering exposes `Undo`. Undo removes
+  the durable queue entry, rolls back if persistence fails, and prevents that
+  message from entering automatic FIFO execution.
 - Codex-backed queued cards expose `Send now`. The first click opens an inline
   confirmation; only the confirmed action calls provider steering. Accepted
   steering removes the card from the queue and records the input as an

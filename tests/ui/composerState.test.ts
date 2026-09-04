@@ -4,6 +4,7 @@ import test from 'node:test';
 import {
   composerSubmitLabel,
   isActiveConversationStatus,
+  shouldReuseComposer,
 } from '../../src/ui/composerState';
 
 test('keeps message submission available while the active turn is working', () => {
@@ -13,4 +14,11 @@ test('keeps message submission available while the active turn is working', () =
   }
   assert.equal(isActiveConversationStatus('completed'), false);
   assert.equal(composerSubmitLabel('completed'), 'Send message');
+});
+
+test('reuses the composer DOM for snapshots from the same conversation', () => {
+  assert.equal(shouldReuseComposer('conversation:a', 'conversation:a', false), true);
+  assert.equal(shouldReuseComposer('conversation:a', 'conversation:b', false), false);
+  assert.equal(shouldReuseComposer('conversation:a', 'conversation:a', true), false);
+  assert.equal(shouldReuseComposer(null, 'conversation:a', false), false);
 });

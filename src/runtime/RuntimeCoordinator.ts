@@ -134,6 +134,14 @@ export class RuntimeCoordinator {
       .steerQueuedTurn(queuedTurnId);
   }
 
+  async cancelQueuedTurn(
+    conversationId: string,
+    queuedTurnId: string,
+  ): Promise<void> {
+    await (await this.ensureTask(conversationId))
+      .cancelQueuedTurn(queuedTurnId);
+  }
+
   async continueInterrupted(
     conversationId: string,
     primaryPagePath: string,

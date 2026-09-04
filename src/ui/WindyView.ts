@@ -27,7 +27,11 @@ import type {
 import { ClipboardImageStore } from '../storage/ClipboardImageStore';
 import { renderConversationHistoryControl } from './ConversationHistoryControl';
 import { EMPTY_STATE_ACTIONS } from './emptyStateActions';
-import { renderWindyComposer } from './WindyComposer';
+import {
+  renderWindyComposer,
+  type WindyComposerControl,
+  type WindyComposerOptions,
+} from './WindyComposer';
 import { WINDY_NAV_ICON } from './icons';
 import { MessageListRenderer } from './MessageListRenderer';
 import {
@@ -38,7 +42,10 @@ import {
   getReferencedPagePaths,
 } from './pageReferenceMentions';
 import { getVaultPath } from '../utils/path';
-import { isActiveConversationStatus } from './composerState';
+import {
+  isActiveConversationStatus,
+  shouldReuseComposer,
+} from './composerState';
 
 export const VIEW_TYPE_WINDY = 'windy-agent-view';
 
@@ -60,6 +67,9 @@ export class WindyView extends ItemView {
   private messagesElement: HTMLElement | null = null;
   private backToLatestButton: HTMLButtonElement | null = null;
   private activeScrollKey: string | null = null;
+  private composerControl: WindyComposerControl | null = null;
+  private composerKey: string | null = null;
+  private forceComposerRebuild = false;
   private readonly activityExpansion = new Map<string, boolean>();
   private readonly messageScrollPositions = new MessageScrollPositionStore();
   private readonly clipboardImages: ClipboardImageStore;
@@ -201,6 +211,17 @@ export class WindyView extends ItemView {
       scrollKey,
       previousMessages,
     );
+    const reusableComposer = shouldReuseComposer(
+      this.composerKey,
+      scrollKey,
+      this.forceComposerRebuild,
+    ) && this.composerControl?.element.parentElement === this.contentEl
+      ? this.composerControl
+      : null;
+    if (!reusableComposer) {
+      this.composerControl = null;
+      this.composerKey = null;
+    }
     this.activeScrollKey = scrollKey;
     this.disposeMessageRenderer();
     this.contentEl.addClass('windy-view');
@@ -222,7 +243,9 @@ export class WindyView extends ItemView {
       return;
     }
 
-    const { transcript, messages } = this.prepareTranscript();
+    const { transcript, messages } = this.prepareTranscript(
+      reusableComposer?.element ?? null,
+    );
     const header = this.contentEl.createDiv('windy-view__header');
     this.contentEl.insertBefore(header, transcript);
 
@@ -290,10 +313,8 @@ export class WindyView extends ItemView {
     }
 
     if (snapshot?.error) {
-      this.contentEl.createDiv({
-        cls: 'windy-view__error',
-        text: snapshot.error,
-      });
+      this.createConversationAccessory('windy-view__error')
+        .setText(snapshot.error);
     }
 
     if (snapshot?.status === 'interrupted') {
@@ -303,7 +324,7 @@ export class WindyView extends ItemView {
     const status = snapshot?.status ?? 'idle';
     const composerDraft = this.getComposerDraft(page.path);
     const isDraft = !snapshot?.conversation;
-    renderWindyComposer(this.contentEl, {
+    const composerOptions: WindyComposerOptions = {
       primaryPage: page,
       text: composerDraft.text,
       references: composerDraft.references,
@@ -333,9 +354,11 @@ export class WindyView extends ItemView {
             .getSelectionForModel(model);
           composerDraft.selectedModel = selection.model;
           composerDraft.selectedReasoningEffort = selection.reasoningEffort;
+          this.forceComposerRebuild = true;
           this.renderConversation(route, snapshot, history);
           return;
         }
+        this.forceComposerRebuild = true;
         await this.conversationModels.select(snapshot.conversation.id, model);
       },
       onReasoningEffortSelect: async reasoningEffort => {
@@ -350,9 +373,11 @@ export class WindyView extends ItemView {
           } else {
             composerDraft.selectedReasoningEffort = reasoningEffort;
           }
+          this.forceComposerRebuild = true;
           this.renderConversation(route, snapshot, history);
           return;
         }
+        this.forceComposerRebuild = true;
         await this.conversationModels.selectReasoningEffort(
           snapshot.conversation.id,
           selectedModel,
@@ -363,7 +388,22 @@ export class WindyView extends ItemView {
         await this.permissionModes.setMode(mode);
       },
       onSubmit: text => {
-        void this.send(text);
+        const submittedDraft: ComposerDraft = {
+          ...composerDraft,
+          text,
+          references: [...composerDraft.references],
+          attachments: [...composerDraft.attachments],
+        };
+        this.composerDrafts.set(page.path, {
+          text: '',
+          references: [],
+          attachments: [],
+          selectedModel: composerDraft.selectedModel,
+          selectedReasoningEffort: composerDraft.selectedReasoningEffort,
+        });
+        this.forceComposerRebuild = true;
+        this.renderConversation(route, snapshot, history);
+        void this.send(text, submittedDraft);
       },
       onStop: () => {
         const conversationId = snapshot?.conversation?.id;
@@ -371,7 +411,18 @@ export class WindyView extends ItemView {
           this.runtimeCoordinator.cancel(conversationId);
         }
       },
-    });
+    };
+    if (reusableComposer) {
+      reusableComposer.updateStatus(status);
+      this.composerControl = reusableComposer;
+    } else {
+      this.composerControl = renderWindyComposer(
+        this.contentEl,
+        composerOptions,
+      );
+    }
+    this.composerKey = scrollKey;
+    this.forceComposerRebuild = false;
   }
 
   private renderEmptyState(container: HTMLElement, pageName: string): void {
@@ -434,10 +485,6 @@ export class WindyView extends ItemView {
         actions.createSpan({ text: 'Steering current turn…' });
         continue;
       }
-      if (snapshot.steeringQueuedTurnIds.length > 0) {
-        actions.createSpan({ text: 'Another queued message is being steered' });
-        continue;
-      }
       if (
         this.confirmingSteer?.conversationId === conversationId
         && this.confirmingSteer.queuedTurnId === queuedTurn.id
@@ -445,24 +492,39 @@ export class WindyView extends ItemView {
         this.renderSteerConfirmation(actions, conversationId, queuedTurn.id);
         continue;
       }
-      if (!snapshot.canSteer || !isActiveConversationStatus(snapshot.status)) {
+      if (snapshot.steeringQueuedTurnIds.length > 0) {
+        actions.createSpan({ text: 'Another queued message is being steered' });
+      } else if (!snapshot.canSteer || !isActiveConversationStatus(snapshot.status)) {
         actions.createSpan({ text: 'Runs automatically after the current turn' });
-        continue;
+      } else {
+        const sendNow = actions.createEl('button', {
+          cls: 'windy-queued-turn__send-now',
+          text: 'Send now',
+          attr: { type: 'button' },
+        });
+        sendNow.addEventListener('click', () => {
+          this.confirmingSteer = {
+            conversationId,
+            queuedTurnId: queuedTurn.id,
+          };
+          this.renderSteerConfirmation(actions, conversationId, queuedTurn.id);
+        });
+        actions.createSpan({ text: 'or wait for automatic FIFO execution' });
       }
-
-      const sendNow = actions.createEl('button', {
-        cls: 'windy-queued-turn__send-now',
-        text: 'Send now',
+      const undo = actions.createEl('button', {
+        cls: 'windy-queued-turn__undo',
+        text: 'Undo',
         attr: { type: 'button' },
       });
-      sendNow.addEventListener('click', () => {
-        this.confirmingSteer = {
-          conversationId,
-          queuedTurnId: queuedTurn.id,
-        };
-        this.renderSteerConfirmation(actions, conversationId, queuedTurn.id);
+      undo.addEventListener('click', () => {
+        undo.disabled = true;
+        void this.runtimeCoordinator
+          .cancelQueuedTurn(conversationId, queuedTurn.id)
+          .catch(error => {
+            undo.disabled = false;
+            new Notice(error instanceof Error ? error.message : String(error));
+          });
       });
-      actions.createSpan({ text: 'or wait for automatic FIFO execution' });
     }
   }
 
@@ -525,7 +587,7 @@ export class WindyView extends ItemView {
       return;
     }
 
-    const container = this.contentEl.createDiv('windy-view__approval');
+    const container = this.createConversationAccessory('windy-view__approval');
     container.createEl('strong', { text: 'Approval required' });
     container.createEl('p', { text: approval.description });
     const actions = container.createDiv('windy-view__approval-actions');
@@ -550,7 +612,7 @@ export class WindyView extends ItemView {
     if (!conversationId) {
       return;
     }
-    const container = this.contentEl.createDiv('windy-view__interrupted');
+    const container = this.createConversationAccessory('windy-view__interrupted');
     container.createEl('strong', { text: 'Response interrupted' });
     container.createEl('p', {
       text: 'Partial output was preserved. Retry the original request or continue from here.',
@@ -738,14 +800,17 @@ export class WindyView extends ItemView {
     this.renderConversation(route, null, this.history);
   }
 
-  private async send(rawText: string): Promise<void> {
+  private async send(
+    rawText: string,
+    submittedDraft?: ComposerDraft,
+  ): Promise<void> {
     const route = this.router.getRoute();
     const text = rawText.trim();
     if (!route.page) {
       return;
     }
     const pagePath = route.page.path;
-    const composerDraft = this.getComposerDraft(pagePath);
+    const composerDraft = submittedDraft ?? this.getComposerDraft(pagePath);
     if (!text && composerDraft.attachments.length === 0) {
       return;
     }
@@ -764,7 +829,10 @@ export class WindyView extends ItemView {
       if (this.draftPagePath === pagePath) {
         this.draftPagePath = null;
       }
-      this.composerDrafts.delete(pagePath);
+      if (!submittedDraft) {
+        this.forceComposerRebuild = true;
+        this.composerDrafts.delete(pagePath);
+      }
       await this.runtimeCoordinator.send(
         conversationId,
         text,
@@ -773,9 +841,21 @@ export class WindyView extends ItemView {
         composerDraft.attachments,
       );
     } catch (error) {
-      if (!this.composerDrafts.has(pagePath)) {
+      const currentDraft = this.composerDrafts.get(pagePath);
+      if (
+        !currentDraft
+        || (
+          !currentDraft.text
+          && currentDraft.references.length === 0
+          && currentDraft.attachments.length === 0
+        )
+      ) {
         this.composerDrafts.set(pagePath, composerDraft);
       }
+      this.forceComposerRebuild = true;
+      void this.renderRoute(this.router.getRoute()).catch(renderError => {
+        this.renderRouteError(renderError);
+      });
       new Notice(error instanceof Error ? error.message : String(error));
     }
   }
@@ -828,7 +908,7 @@ export class WindyView extends ItemView {
     this.messageRenderer = null;
   }
 
-  private prepareTranscript(): {
+  private prepareTranscript(preservedComposer: HTMLElement | null): {
     transcript: HTMLElement;
     messages: HTMLElement;
   } {
@@ -884,7 +964,10 @@ export class WindyView extends ItemView {
     }
 
     for (const child of Array.from(this.contentEl.children)) {
-      if (child !== this.transcriptElement) {
+      if (
+        child !== this.transcriptElement
+        && child !== preservedComposer
+      ) {
         child.remove();
       }
     }
@@ -912,6 +995,18 @@ export class WindyView extends ItemView {
     this.messagesElement = null;
     this.backToLatestButton = null;
     this.activeScrollKey = null;
+    this.composerControl = null;
+    this.composerKey = null;
+    this.forceComposerRebuild = false;
+  }
+
+  private createConversationAccessory(className: string): HTMLDivElement {
+    const element = this.contentEl.createDiv(className);
+    const composer = this.composerControl?.element;
+    if (composer?.parentElement === this.contentEl) {
+      this.contentEl.insertBefore(element, composer);
+    }
+    return element;
   }
 
 }
