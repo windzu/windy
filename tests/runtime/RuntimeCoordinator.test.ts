@@ -65,11 +65,20 @@ function createFakeRuntime(options: {
   sessionTitles?: string[];
   sessionTitleError?: Error;
   queryOptions?: ChatRuntimeQueryOptions[];
+  steeredRequests?: ChatTurnRequest[];
+  steerAccepted?: boolean;
+  steerError?: Error;
+  afterGateChunks?: StreamChunk[];
+  steerChunksBeforeAccept?: StreamChunk[];
 }): ChatRuntime {
   let conversationId = '';
   let approvalCallback: ApprovalCallback | null = null;
   let askUserCallback: AskUserQuestionCallback | null = null;
   let cancelled = false;
+  let userInputRequested = false;
+  const steerStarted = deferred();
+  const steerChunksDelivered = deferred();
+  const releaseSteeredQuery = deferred();
 
   const runtime = {
     syncConversationState(state: { id?: string } | null): void {
@@ -96,10 +105,23 @@ function createFakeRuntime(options: {
         yield { type: 'done' };
         return;
       }
+      if (options.steerChunksBeforeAccept) {
+        await steerStarted.promise;
+        yield* options.steerChunksBeforeAccept;
+        steerChunksDelivered.resolve();
+        await releaseSteeredQuery.promise;
+        yield { type: 'done' };
+        return;
+      }
       if (options.partialBeforeGate) {
         yield { type: 'text', content: options.partialBeforeGate };
       }
       await options.gateByConversation?.get(conversationId);
+      if (options.afterGateChunks) {
+        yield* options.afterGateChunks;
+        yield { type: 'done' };
+        return;
+      }
       if (options.approval && approvalCallback) {
         const decision = await approvalCallback(
           'command_execution',
@@ -110,7 +132,8 @@ function createFakeRuntime(options: {
           type: 'text',
           content: decision === 'allow' ? 'approved' : 'denied',
         };
-      } else if (options.userInput && askUserCallback) {
+      } else if (options.userInput && askUserCallback && !userInputRequested) {
+        userInputRequested = true;
         const answers = await askUserCallback(options.userInput);
         yield {
           type: 'text',
@@ -144,6 +167,22 @@ function createFakeRuntime(options: {
     },
     cleanup(): void {},
   };
+  if (options.steerAccepted !== undefined || options.steerError) {
+    Object.assign(runtime, {
+      async steer(turn: PreparedChatTurn): Promise<boolean> {
+        options.steeredRequests?.push(structuredClone(turn.request));
+        if (options.steerError) {
+          throw options.steerError;
+        }
+        if (options.steerChunksBeforeAccept) {
+          steerStarted.resolve();
+          await steerChunksDelivered.promise;
+          setImmediate(releaseSteeredQuery.resolve);
+        }
+        return options.steerAccepted ?? false;
+      },
+    });
+  }
   return runtime as unknown as ChatRuntime;
 }
 
@@ -564,9 +603,12 @@ describe('RuntimeCoordinator', () => {
       failedCount: 0,
       interruptedCount: 0,
     });
-    await assert.rejects(
-      coordinator.send('a', 'second turn', 'A.md'),
-      /already has a running turn/,
+    await coordinator.send('a', 'second turn', 'A.md');
+    assert.deepEqual(
+      (await coordinator.getSnapshot('a')).conversation?.queuedTurns?.map(
+        turn => turn.content,
+      ),
+      ['second turn'],
     );
     await assert.rejects(
       coordinator.setModel('a', 'another-model'),
@@ -579,10 +621,200 @@ describe('RuntimeCoordinator', () => {
     const completed = await coordinator.getSnapshot('a');
     assert.equal(completed.status, 'completed');
     assert.equal(completed.pendingUserInput, null);
-    assert.equal(
-      completed.conversation?.messages.at(-1)?.content,
-      '{"scope":"Current page"}',
+    assert.deepEqual(
+      completed.conversation?.messages.map(message => message.content),
+      [
+        'ask me first',
+        '{"scope":"Current page"}',
+        'second turn',
+        'response:a',
+      ],
     );
+  });
+
+  it('queues concurrent turns and drains them in FIFO order', async () => {
+    const gate = deferred();
+    const preparedRequests: ChatTurnRequest[] = [];
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        gateByConversation: new Map([['a', gate.promise]]),
+        preparedRequests,
+      }),
+    );
+
+    const first = coordinator.send('a', 'first', 'A.md');
+    await new Promise(resolve => setImmediate(resolve));
+    await coordinator.send('a', 'second', 'A.md');
+    await coordinator.send('a', 'third', 'A.md');
+
+    const queued = await coordinator.getSnapshot('a');
+    assert.deepEqual(
+      queued.conversation?.queuedTurns?.map(turn => turn.content),
+      ['second', 'third'],
+    );
+
+    gate.resolve();
+    await first;
+
+    const completed = await coordinator.getSnapshot('a');
+    assert.deepEqual(
+      preparedRequests.map(request => request.text),
+      ['first', 'second', 'third'],
+    );
+    assert.deepEqual(
+      completed.conversation?.messages.map(message => message.content),
+      [
+        'first',
+        'response:a',
+        'second',
+        'response:a',
+        'third',
+        'response:a',
+      ],
+    );
+    assert.deepEqual(completed.conversation?.queuedTurns, []);
+  });
+
+  it('steers one queued turn exactly once and removes it from the FIFO', async () => {
+    const steeredRequests: ChatTurnRequest[] = [];
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        steeredRequests,
+        steerAccepted: true,
+        steerChunksBeforeAccept: [
+          {
+            type: 'user_message_start',
+            itemId: 'steered-user',
+            content: 'urgent correction',
+          },
+          {
+            type: 'assistant_message_start',
+            itemId: 'assistant-after-steer',
+            phase: 'final_answer',
+          },
+          {
+            type: 'text',
+            content: 'response after steering',
+            itemId: 'assistant-after-steer',
+            phase: 'final_answer',
+          },
+        ],
+      }),
+    );
+
+    const first = coordinator.send('a', 'first', 'A.md');
+    await new Promise(resolve => setImmediate(resolve));
+    await coordinator.send('a', 'urgent correction', 'A.md');
+    const queuedTurn = (await coordinator.getSnapshot('a'))
+      .conversation?.queuedTurns?.[0];
+    assert.ok(queuedTurn);
+
+    await coordinator.steerQueuedTurn('a', queuedTurn.id);
+    await assert.rejects(
+      coordinator.steerQueuedTurn('a', queuedTurn.id),
+      /no longer queued/,
+    );
+
+    const steered = await coordinator.getSnapshot('a');
+    assert.deepEqual(steered.conversation?.queuedTurns, []);
+    assert.equal(steeredRequests.length, 1);
+    assert.equal(steeredRequests[0]?.text, 'urgent correction');
+    const interrupt = steered.conversation?.messages.find(
+      message => message.isInterrupt,
+    );
+    assert.equal(
+      interrupt?.content,
+      'urgent correction',
+    );
+    assert.equal(interrupt?.isInterrupt, true);
+
+    await first;
+    assert.equal(steeredRequests.length, 1);
+    assert.deepEqual(
+      (await coordinator.getSnapshot('a')).conversation?.messages.map(
+        message => [message.role, message.content],
+      ),
+      [
+        ['user', 'first'],
+        ['assistant', ''],
+        ['user', 'urgent correction'],
+        ['assistant', 'response after steering'],
+      ],
+    );
+  });
+
+  it('keeps a queued turn when the provider cannot accept steering', async () => {
+    const gate = deferred();
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        gateByConversation: new Map([['a', gate.promise]]),
+        steerAccepted: false,
+      }),
+    );
+
+    const first = coordinator.send('a', 'first', 'A.md');
+    await new Promise(resolve => setImmediate(resolve));
+    await coordinator.send('a', 'keep queued', 'A.md');
+    const queuedTurn = (await coordinator.getSnapshot('a'))
+      .conversation?.queuedTurns?.[0];
+    assert.ok(queuedTurn);
+
+    await assert.rejects(
+      coordinator.steerQueuedTurn('a', queuedTurn.id),
+      /could not steer/,
+    );
+    assert.deepEqual(
+      (await coordinator.getSnapshot('a')).conversation?.queuedTurns?.map(
+        turn => turn.content,
+      ),
+      ['keep queued'],
+    );
+
+    gate.resolve();
+    await first;
+  });
+
+  it('clears in-flight steering state when the provider request fails', async () => {
+    const gate = deferred();
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        gateByConversation: new Map([['a', gate.promise]]),
+        steerError: new Error('steer unavailable'),
+      }),
+    );
+
+    const first = coordinator.send('a', 'first', 'A.md');
+    await new Promise(resolve => setImmediate(resolve));
+    await coordinator.send('a', 'keep queued', 'A.md');
+    const queuedTurn = (await coordinator.getSnapshot('a'))
+      .conversation?.queuedTurns?.[0];
+    assert.ok(queuedTurn);
+
+    await assert.rejects(
+      coordinator.steerQueuedTurn('a', queuedTurn.id),
+      /steer unavailable/,
+    );
+    const snapshot = await coordinator.getSnapshot('a');
+    assert.deepEqual(snapshot.steeringQueuedTurnIds, []);
+    assert.deepEqual(
+      snapshot.conversation?.queuedTurns?.map(turn => turn.content),
+      ['keep queued'],
+    );
+
+    gate.resolve();
+    await first;
   });
 
   it('cancels cleanly while waiting for user input', async () => {
@@ -663,6 +895,12 @@ describe('RuntimeCoordinator', () => {
       input: {},
       status: 'running',
     }];
+    persisted.queuedTurns = [{
+      id: 'queued-after-recovery',
+      content: 'queued follow-up',
+      primaryPagePath: 'A.md',
+      createdAt: 200,
+    }];
 
     const recoveredConversations = new Map([['a', persisted]]);
     const recoveredCoordinator = new RuntimeCoordinator(
@@ -697,9 +935,18 @@ describe('RuntimeCoordinator', () => {
     await recoveredCoordinator.retryInterrupted('a');
     const retried = await recoveredCoordinator.getSnapshot('a');
     assert.equal(retried.status, 'completed');
-    assert.equal(retried.conversation?.messages.length, 4);
-    assert.equal(retried.conversation?.messages.at(-2)?.content, 'original request');
+    assert.equal(retried.conversation?.messages.length, 6);
+    assert.deepEqual(
+      retried.conversation?.messages.slice(-4).map(message => message.content),
+      [
+        'original request',
+        'response:a',
+        'queued follow-up',
+        'response:a',
+      ],
+    );
     assert.equal(retried.conversation?.messages.at(-1)?.content, 'response:a');
+    assert.deepEqual(retried.conversation?.queuedTurns, []);
     assert.equal(retried.conversation?.activeTurn, undefined);
 
     gate.resolve();
@@ -762,6 +1009,7 @@ describe('RuntimeCoordinator', () => {
 
     const task = coordinator.send('a', 'work', 'A.md');
     await new Promise(resolve => setImmediate(resolve));
+    await coordinator.send('a', 'run after restart', 'A.md');
     coordinator.cleanup();
     await new Promise(resolve => setImmediate(resolve));
 
@@ -770,10 +1018,18 @@ describe('RuntimeCoordinator', () => {
       conversations.get('a')?.messages.at(-1)?.content,
       'saved before cleanup',
     );
+    assert.deepEqual(
+      conversations.get('a')?.queuedTurns?.map(turn => turn.content),
+      ['run after restart'],
+    );
 
     gate.resolve();
     await task;
     assert.equal(conversations.get('a')?.activeTurn?.status, 'interrupted');
+    assert.deepEqual(
+      conversations.get('a')?.queuedTurns?.map(turn => turn.content),
+      ['run after restart'],
+    );
   });
 
   it('deduplicates concurrent initialization for the same conversation', async () => {

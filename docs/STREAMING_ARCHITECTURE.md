@@ -64,7 +64,23 @@ The accumulated assistant `content` remains the final answer source. Ordered
 `contentBlocks` remain the activity source; they store semantic segments rather
 than transport packet boundaries.
 
-### 3.3 Snapshot scheduling
+### 3.3 Queued and steered user turns
+
+Submitting while a conversation is `running`, `waiting-approval`, or
+`waiting-input` persists a `queuedTurns` entry instead of rejecting the input.
+The controller owns one processing loop per conversation and removes each
+queued entry in FIFO order only when it creates the corresponding persisted
+user/assistant turn pair. This keeps rerenders and concurrent submits from
+starting duplicate queries.
+
+For runtimes that implement `ChatRuntime.steer`, the UI may request immediate
+delivery after explicit user confirmation. The queued entry remains durable
+until the provider accepts the steer. On acceptance it is removed from the
+FIFO and recorded as an interrupt user message. The next provider assistant
+message boundary starts a new assistant segment after that interrupt, while
+the original query stream remains active.
+
+### 3.4 Snapshot scheduling
 
 Progress snapshots are coalesced to at most one update every 100 milliseconds.
 This bounds full-conversation cloning and current full-view rendering to 10 Hz.
@@ -75,7 +91,7 @@ The current full-view renderer is retained in the first implementation phase.
 A keyed incremental renderer is a follow-up optimization behind the same
 snapshot contract.
 
-### 3.4 Checkpoint scheduling
+### 3.5 Checkpoint scheduling
 
 Progress checkpoints are best-effort recovery data:
 
@@ -87,7 +103,7 @@ Progress checkpoints are best-effort recovery data:
 The terminal save is authoritative and remains awaited before the turn is
 reported as durably complete.
 
-### 3.5 Terminal behavior
+### 3.6 Terminal behavior
 
 Terminal state cancels any pending progress snapshot and emits the latest state
 immediately. The final save contains all coalesced content, tool results, usage,

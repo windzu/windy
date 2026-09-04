@@ -10,6 +10,7 @@ import type {
   AskUserQuestionItem,
   ConversationMeta,
   FileAttachment,
+  QueuedTurn,
 } from '../core/types';
 import type { PermissionModeController } from '../app/PermissionModeController';
 import type {
@@ -37,6 +38,7 @@ import {
   getReferencedPagePaths,
 } from './pageReferenceMentions';
 import { getVaultPath } from '../utils/path';
+import { isActiveConversationStatus } from './composerState';
 
 export const VIEW_TYPE_WINDY = 'windy-agent-view';
 
@@ -61,6 +63,10 @@ export class WindyView extends ItemView {
   private readonly activityExpansion = new Map<string, boolean>();
   private readonly messageScrollPositions = new MessageScrollPositionStore();
   private readonly clipboardImages: ClipboardImageStore;
+  private confirmingSteer: {
+    conversationId: string;
+    queuedTurnId: string;
+  } | null = null;
 
   constructor(
     leaf: WorkspaceLeaf,
@@ -251,6 +257,9 @@ export class WindyView extends ItemView {
       snapshot?.status ?? 'idle',
       snapshot?.conversation?.activeTurn?.startedAt,
     );
+    if (snapshot?.conversation?.queuedTurns?.length) {
+      this.renderQueuedTurns(messages, snapshot);
+    }
     this.messageScrollPositions.trackActiveContainer(scrollKey, messages);
     this.messageScrollPositions.restoreActivePosition(
       scrollKey,
@@ -386,6 +395,127 @@ export class WindyView extends ItemView {
         void this.send(action.prompt);
       });
     }
+  }
+
+  private renderQueuedTurns(
+    container: HTMLElement,
+    snapshot: ConversationRuntimeSnapshot,
+  ): void {
+    const conversationId = snapshot.conversation?.id;
+    const queuedTurns = snapshot.conversation?.queuedTurns ?? [];
+    if (!conversationId) {
+      return;
+    }
+
+    for (const [index, queuedTurn] of queuedTurns.entries()) {
+      const card = container.createDiv(
+        'windy-queued-turn windy-message windy-message--user',
+      );
+      const header = card.createDiv('windy-queued-turn__header');
+      header.createSpan({
+        cls: 'windy-queued-turn__author',
+        text: 'You',
+      });
+      header.createSpan({
+        cls: 'windy-queued-turn__position',
+        text: index === 0 ? 'Queued · Next' : `Queued · #${index + 1}`,
+      });
+      card.createDiv({
+        cls: 'windy-message__content windy-message__content--plain',
+        text: queuedTurn.displayContent ?? queuedTurn.content,
+      });
+      this.renderQueuedTurnContext(card, queuedTurn);
+
+      const actions = card.createDiv('windy-queued-turn__actions');
+      const steering = snapshot.steeringQueuedTurnIds.includes(queuedTurn.id);
+      if (steering) {
+        const icon = actions.createSpan('windy-queued-turn__steering-icon');
+        setIcon(icon, 'loader-circle');
+        actions.createSpan({ text: 'Steering current turn…' });
+        continue;
+      }
+      if (snapshot.steeringQueuedTurnIds.length > 0) {
+        actions.createSpan({ text: 'Another queued message is being steered' });
+        continue;
+      }
+      if (
+        this.confirmingSteer?.conversationId === conversationId
+        && this.confirmingSteer.queuedTurnId === queuedTurn.id
+      ) {
+        this.renderSteerConfirmation(actions, conversationId, queuedTurn.id);
+        continue;
+      }
+      if (!snapshot.canSteer || !isActiveConversationStatus(snapshot.status)) {
+        actions.createSpan({ text: 'Runs automatically after the current turn' });
+        continue;
+      }
+
+      const sendNow = actions.createEl('button', {
+        cls: 'windy-queued-turn__send-now',
+        text: 'Send now',
+        attr: { type: 'button' },
+      });
+      sendNow.addEventListener('click', () => {
+        this.confirmingSteer = {
+          conversationId,
+          queuedTurnId: queuedTurn.id,
+        };
+        this.renderSteerConfirmation(actions, conversationId, queuedTurn.id);
+      });
+      actions.createSpan({ text: 'or wait for automatic FIFO execution' });
+    }
+  }
+
+  private renderQueuedTurnContext(
+    card: HTMLElement,
+    queuedTurn: QueuedTurn,
+  ): void {
+    const context = [
+      ...(queuedTurn.referencedPagePaths ?? []),
+      ...(queuedTurn.attachments ?? []).map(attachment => attachment.name),
+    ];
+    if (context.length === 0) {
+      return;
+    }
+    card.createDiv({
+      cls: 'windy-queued-turn__context',
+      text: context.join(' · '),
+    });
+  }
+
+  private renderSteerConfirmation(
+    container: HTMLElement,
+    conversationId: string,
+    queuedTurnId: string,
+  ): void {
+    container.empty();
+    container.createSpan({
+      cls: 'windy-queued-turn__confirmation',
+      text: 'Steer the active turn with this message now?',
+    });
+    const cancel = container.createEl('button', {
+      text: 'Cancel',
+      attr: { type: 'button' },
+    });
+    const confirm = container.createEl('button', {
+      cls: 'mod-cta',
+      text: 'Steer now',
+      attr: { type: 'button' },
+    });
+    cancel.addEventListener('click', () => {
+      this.confirmingSteer = null;
+      void this.renderRoute(this.router.getRoute());
+    });
+    confirm.addEventListener('click', () => {
+      cancel.disabled = true;
+      confirm.disabled = true;
+      this.confirmingSteer = null;
+      void this.runtimeCoordinator
+        .steerQueuedTurn(conversationId, queuedTurnId)
+        .catch(error => {
+          new Notice(error instanceof Error ? error.message : String(error));
+        });
+    });
   }
 
   private renderApproval(snapshot: ConversationRuntimeSnapshot): void {

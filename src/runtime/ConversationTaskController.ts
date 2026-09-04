@@ -8,6 +8,7 @@ import type {
   ChatMessage,
   Conversation,
   FileAttachment,
+  QueuedTurn,
   StreamChunk,
 } from '../core/types';
 import type { ConversationStore } from '../conversations/ConversationRepository';
@@ -31,6 +32,14 @@ export class ConversationTaskController {
   private resolveUserInput: ((answers: AskUserAnswers | null) => void) | null = null;
   private removeUserInputAbortListener: (() => void) | null = null;
   private shuttingDown = false;
+  private processingTurns = false;
+  private readonly steeringQueuedTurnIds = new Set<string>();
+  private liveAssistantMessage: ChatMessage | null = null;
+  private pendingAssistantAfterSteer = false;
+  private bufferingSteerBoundary = false;
+  private reachedSteerBoundary = false;
+  private bufferedSteerChunks: StreamChunk[] = [];
+  private bufferedSteerContent: string | null = null;
   private readonly checkpoints: TurnCheckpointManager;
   private readonly updates: TurnUpdateScheduler;
 
@@ -107,6 +116,8 @@ export class ConversationTaskController {
       pendingUserInput: this.pendingUserInput
         ? structuredClone(this.pendingUserInput)
         : null,
+      canSteer: Boolean(this.runtime.steer),
+      steeringQueuedTurnIds: [...this.steeringQueuedTurnIds],
     };
   }
 
@@ -117,33 +128,121 @@ export class ConversationTaskController {
     referencedPagePaths: string[] = [],
     attachments: FileAttachment[] = [],
   ): Promise<void> {
-    if (
-      this.taskStatus === 'running'
-      || this.taskStatus === 'waiting-approval'
-      || this.taskStatus === 'waiting-input'
-    ) {
-      throw new Error('This conversation already has a running turn.');
-    }
     if (!this.conversation) {
       throw new Error(`Conversation "${this.conversationId}" does not exist.`);
     }
 
-    const conversation = this.conversation;
-    const startedAt = this.now();
-    const userMessage: ChatMessage = {
-      id: randomUUID(),
-      role: 'user',
-      content: text,
-      ...(displayContent ? { displayContent } : {}),
-      timestamp: startedAt,
+    const turn = this.createQueuedTurn(
+      text,
       primaryPagePath,
-      ...(referencedPagePaths.length > 0
-        ? { referencedPagePaths: [...new Set(referencedPagePaths)] }
-        : {}),
-      ...(attachments.length > 0
-        ? { attachments: structuredClone(attachments) }
-        : {}),
-    };
+      displayContent,
+      referencedPagePaths,
+      attachments,
+    );
+    if (this.processingTurns || this.isActive()) {
+      await this.enqueueTurn(turn);
+      return;
+    }
+
+    this.processingTurns = true;
+    try {
+      await this.executeTurn(turn);
+      while (!this.shuttingDown && this.conversation?.queuedTurns?.length) {
+        await this.executeTurn(this.conversation.queuedTurns[0]);
+      }
+    } finally {
+      this.processingTurns = false;
+    }
+  }
+
+  async steerQueuedTurn(queuedTurnId: string): Promise<void> {
+    if (!this.conversation) {
+      throw new Error(`Conversation "${this.conversationId}" does not exist.`);
+    }
+    if (!this.isActive() || !this.runtime.steer) {
+      throw new Error('The active turn cannot be steered right now.');
+    }
+    const queuedTurn = this.conversation.queuedTurns?.find(
+      turn => turn.id === queuedTurnId,
+    );
+    if (!queuedTurn) {
+      throw new Error('This message is no longer queued.');
+    }
+    if (this.steeringQueuedTurnIds.has(queuedTurnId)) {
+      return;
+    }
+    if (this.steeringQueuedTurnIds.size > 0) {
+      throw new Error('Another queued message is already being steered.');
+    }
+
+    this.steeringQueuedTurnIds.add(queuedTurnId);
+    this.beginSteerBoundaryBuffer(queuedTurn.content);
+    this.emit();
+    try {
+      const accepted = await this.runtime.steer(this.runtime.prepareTurn({
+        text: queuedTurn.content,
+        primaryPagePath: queuedTurn.primaryPagePath,
+        referencedPagePaths: queuedTurn.referencedPagePaths ?? [],
+        attachments: queuedTurn.attachments ?? [],
+      }));
+      if (!accepted) {
+        throw new Error('The provider could not steer the active turn.');
+      }
+
+      const currentIndex = this.conversation.queuedTurns?.findIndex(
+        turn => turn.id === queuedTurnId,
+      ) ?? -1;
+      if (currentIndex < 0) {
+        throw new Error('This message is no longer queued.');
+      }
+      this.conversation.queuedTurns?.splice(currentIndex, 1);
+      this.conversation.messages.push(this.createUserMessage(queuedTurn, true));
+      this.pendingAssistantAfterSteer = true;
+      this.finishSteerBoundaryBuffer(true);
+      await this.conversations.save(this.conversation);
+      this.runtime.syncConversationState(this.conversation);
+    } finally {
+      this.finishSteerBoundaryBuffer(false);
+      this.steeringQueuedTurnIds.delete(queuedTurnId);
+      this.emit();
+    }
+  }
+
+  private async enqueueTurn(turn: QueuedTurn): Promise<void> {
+    const conversation = this.conversation!;
+    (conversation.queuedTurns ??= []).push(turn);
+    try {
+      await this.conversations.save(conversation);
+    } catch (error) {
+      const index = conversation.queuedTurns.findIndex(
+        queuedTurn => queuedTurn.id === turn.id,
+      );
+      if (index >= 0) {
+        conversation.queuedTurns.splice(index, 1);
+      }
+      throw error;
+    }
+    this.emit();
+  }
+
+  private async executeTurn(turn: QueuedTurn): Promise<void> {
+    const conversation = this.conversation!;
+    const previousStatus = this.taskStatus;
+    const previousError = this.error;
+    const previousTitle = conversation.title;
+    const previousActiveTurn = conversation.activeTurn
+      ? structuredClone(conversation.activeTurn)
+      : undefined;
+    const previousMessageCount = conversation.messages.length;
+    const queuedIndex = conversation.queuedTurns?.findIndex(
+      queuedTurn => queuedTurn.id === turn.id,
+    ) ?? -1;
+    if (queuedIndex >= 0) {
+      conversation.queuedTurns?.splice(queuedIndex, 1);
+    }
+
+    const startedAt = queuedIndex >= 0 ? this.now() : turn.createdAt;
+    const userMessage = this.createUserMessage(turn);
     const assistantMessage: ChatMessage = {
       id: randomUUID(),
       role: 'assistant',
@@ -152,15 +251,19 @@ export class ConversationTaskController {
       contentBlocks: [],
       toolCalls: [],
     };
+    this.liveAssistantMessage = assistantMessage;
+    this.pendingAssistantAfterSteer = false;
     if (conversation.title === 'New conversation') {
-      conversation.title = deriveConversationTitle(text || attachments[0]?.name || '');
+      conversation.title = deriveConversationTitle(
+        turn.content || turn.attachments?.[0]?.name || '',
+      );
     }
     conversation.messages.push(userMessage, assistantMessage);
     conversation.activeTurn = {
       status: 'running',
       userMessageId: userMessage.id,
       assistantMessageId: assistantMessage.id,
-      primaryPagePath,
+      primaryPagePath: turn.primaryPagePath,
       startedAt,
       updatedAt: startedAt,
     };
@@ -169,19 +272,36 @@ export class ConversationTaskController {
     this.pendingApproval = null;
     this.pendingUserInput = null;
     this.checkpoints.resetProgressClock();
-    await this.conversations.save(conversation);
+    try {
+      await this.conversations.save(conversation);
+    } catch (error) {
+      conversation.messages.splice(previousMessageCount);
+      conversation.title = previousTitle;
+      if (previousActiveTurn) {
+        conversation.activeTurn = previousActiveTurn;
+      } else {
+        delete conversation.activeTurn;
+      }
+      if (queuedIndex >= 0) {
+        (conversation.queuedTurns ??= []).splice(queuedIndex, 0, turn);
+      }
+      this.taskStatus = previousStatus;
+      this.error = previousError;
+      this.liveAssistantMessage = null;
+      throw error;
+    }
     this.runtime.syncConversationState(conversation);
     this.emit();
 
-    const turn = this.runtime.prepareTurn({
-      text,
-      primaryPagePath,
-      referencedPagePaths,
-      attachments,
+    const preparedTurn = this.runtime.prepareTurn({
+      text: turn.content,
+      primaryPagePath: turn.primaryPagePath,
+      referencedPagePaths: turn.referencedPagePaths ?? [],
+      attachments: turn.attachments ?? [],
     });
     try {
       for await (const chunk of this.runtime.query(
-        turn,
+        preparedTurn,
         conversation.messages.slice(0, -2),
         {
           model: conversation.selectedModel,
@@ -191,7 +311,11 @@ export class ConversationTaskController {
         if (this.shuttingDown) {
           break;
         }
-        this.applyChunk(assistantMessage, conversation, chunk);
+        this.applyChunk(
+          this.liveAssistantMessage ?? assistantMessage,
+          conversation,
+          chunk,
+        );
         if (chunk.type === 'error') {
           this.taskStatus = 'failed';
           this.error = chunk.content;
@@ -213,7 +337,7 @@ export class ConversationTaskController {
       if (!this.isCancelled()) {
         this.taskStatus = this.taskStatus === 'failed' ? 'failed' : 'completed';
         this.completeAssistantTurn(
-          assistantMessage,
+          this.liveAssistantMessage ?? assistantMessage,
           startedAt,
           completedAt,
           this.taskStatus,
@@ -229,13 +353,14 @@ export class ConversationTaskController {
       if (!this.isCancelled()) {
         this.taskStatus = 'failed';
         this.error = error instanceof Error ? error.message : String(error);
-        if (!assistantMessage.content) {
-          assistantMessage.content = this.error;
+        const failedMessage = this.liveAssistantMessage ?? assistantMessage;
+        if (!failedMessage.content) {
+          failedMessage.content = this.error;
         }
         const failedAt = this.now();
         conversation.lastResponseAt = failedAt;
         this.completeAssistantTurn(
-          assistantMessage,
+          failedMessage,
           startedAt,
           failedAt,
           'failed',
@@ -251,8 +376,53 @@ export class ConversationTaskController {
       this.pendingApproval = null;
       this.resolveApproval = null;
       this.clearPendingUserInput();
+      this.liveAssistantMessage = null;
+      this.pendingAssistantAfterSteer = false;
       this.emit();
     }
+  }
+
+  private createQueuedTurn(
+    content: string,
+    primaryPagePath: string,
+    displayContent: string | undefined,
+    referencedPagePaths: string[],
+    attachments: FileAttachment[],
+  ): QueuedTurn {
+    return {
+      id: randomUUID(),
+      content,
+      ...(displayContent ? { displayContent } : {}),
+      primaryPagePath,
+      ...(referencedPagePaths.length > 0
+        ? { referencedPagePaths: [...new Set(referencedPagePaths)] }
+        : {}),
+      ...(attachments.length > 0
+        ? { attachments: structuredClone(attachments) }
+        : {}),
+      createdAt: this.now(),
+    };
+  }
+
+  private createUserMessage(
+    turn: QueuedTurn,
+    isInterrupt = false,
+  ): ChatMessage {
+    return {
+      id: randomUUID(),
+      role: 'user',
+      content: turn.content,
+      ...(turn.displayContent ? { displayContent: turn.displayContent } : {}),
+      timestamp: turn.createdAt,
+      primaryPagePath: turn.primaryPagePath,
+      ...(turn.referencedPagePaths?.length
+        ? { referencedPagePaths: [...turn.referencedPagePaths] }
+        : {}),
+      ...(turn.attachments?.length
+        ? { attachments: structuredClone(turn.attachments) }
+        : {}),
+      ...(isInterrupt ? { isInterrupt: true } : {}),
+    };
   }
 
   private async syncSessionTitle(title: string): Promise<void> {
@@ -516,12 +686,32 @@ export class ConversationTaskController {
     conversation: Conversation,
     chunk: StreamChunk,
   ): void {
+    if (this.bufferingSteerBoundary) {
+      if (
+        this.reachedSteerBoundary
+        || (
+          chunk.type === 'user_message_start'
+          && chunk.content.trim() === this.bufferedSteerContent?.trim()
+        )
+      ) {
+        this.reachedSteerBoundary = true;
+        this.bufferedSteerChunks.push(chunk);
+        return;
+      }
+    }
+    if (chunk.type === 'assistant_message_start') {
+      if (this.pendingAssistantAfterSteer) {
+        this.startAssistantSegmentAfterSteer(conversation);
+      }
+      return;
+    }
     if (chunk.type === 'text') {
+      const target = this.liveAssistantMessage ?? assistantMessage;
       if (chunk.phase !== 'commentary') {
-        assistantMessage.content += chunk.content;
+        target.content += chunk.content;
       }
       this.appendContentBlock(
-        assistantMessage,
+        target,
         'text',
         chunk.content,
         chunk.phase,
@@ -530,11 +720,16 @@ export class ConversationTaskController {
       return;
     }
     if (chunk.type === 'thinking') {
-      this.appendContentBlock(assistantMessage, 'thinking', chunk.content);
+      this.appendContentBlock(
+        this.liveAssistantMessage ?? assistantMessage,
+        'thinking',
+        chunk.content,
+      );
       return;
     }
+    const target = this.liveAssistantMessage ?? assistantMessage;
     if (chunk.type === 'tool_use') {
-      const existing = assistantMessage.toolCalls?.find(call => call.id === chunk.id);
+      const existing = target.toolCalls?.find(call => call.id === chunk.id);
       if (existing) {
         existing.name = chunk.name;
         existing.input = chunk.input;
@@ -542,7 +737,7 @@ export class ConversationTaskController {
           existing.providerPayload = chunk.providerPayload;
         }
       } else {
-        assistantMessage.toolCalls?.push({
+        target.toolCalls?.push({
           id: chunk.id,
           name: chunk.name,
           input: chunk.input,
@@ -551,23 +746,23 @@ export class ConversationTaskController {
         });
       }
       if (
-        !assistantMessage.contentBlocks?.some(
+        !target.contentBlocks?.some(
           block => block.type === 'tool_use' && block.toolId === chunk.id,
         )
       ) {
-        assistantMessage.contentBlocks?.push({ type: 'tool_use', toolId: chunk.id });
+        target.contentBlocks?.push({ type: 'tool_use', toolId: chunk.id });
       }
       return;
     }
     if (chunk.type === 'tool_output') {
-      const toolCall = assistantMessage.toolCalls?.find(call => call.id === chunk.id);
+      const toolCall = this.findActiveToolCall(conversation, chunk.id);
       if (toolCall) {
         toolCall.result = `${toolCall.result ?? ''}${chunk.content}`;
       }
       return;
     }
     if (chunk.type === 'tool_result') {
-      const toolCall = assistantMessage.toolCalls?.find(call => call.id === chunk.id);
+      const toolCall = this.findActiveToolCall(conversation, chunk.id);
       if (toolCall) {
         toolCall.result = chunk.content;
         toolCall.status = chunk.isError ? 'error' : 'completed';
@@ -582,14 +777,86 @@ export class ConversationTaskController {
       return;
     }
     if (chunk.type === 'context_compacted') {
-      assistantMessage.contentBlocks?.push({ type: 'context_compacted' });
+      target.contentBlocks?.push({ type: 'context_compacted' });
       return;
     }
     if (chunk.type === 'error') {
-      assistantMessage.content += assistantMessage.content
+      target.content += target.content
         ? `\n\n${chunk.content}`
         : chunk.content;
     }
+  }
+
+  private startAssistantSegmentAfterSteer(conversation: Conversation): void {
+    const previous = this.liveAssistantMessage;
+    const boundaryAt = this.now();
+    const startedAt = conversation.activeTurn?.startedAt ?? boundaryAt;
+    if (previous) {
+      this.completeAssistantTurn(previous, startedAt, boundaryAt, 'completed');
+    }
+    const assistantMessage: ChatMessage = {
+      id: randomUUID(),
+      role: 'assistant',
+      content: '',
+      timestamp: boundaryAt,
+      contentBlocks: [],
+      toolCalls: [],
+    };
+    conversation.messages.push(assistantMessage);
+    this.liveAssistantMessage = assistantMessage;
+    this.pendingAssistantAfterSteer = false;
+    if (conversation.activeTurn) {
+      conversation.activeTurn.assistantMessageId = assistantMessage.id;
+      conversation.activeTurn.updatedAt = boundaryAt;
+    }
+  }
+
+  private beginSteerBoundaryBuffer(content: string): void {
+    this.bufferingSteerBoundary = true;
+    this.reachedSteerBoundary = false;
+    this.bufferedSteerChunks = [];
+    this.bufferedSteerContent = content;
+  }
+
+  private finishSteerBoundaryBuffer(accepted: boolean): void {
+    if (!this.bufferingSteerBoundary) {
+      return;
+    }
+    const buffered = this.bufferedSteerChunks;
+    this.bufferingSteerBoundary = false;
+    this.reachedSteerBoundary = false;
+    this.bufferedSteerChunks = [];
+    this.bufferedSteerContent = null;
+    const conversation = this.conversation;
+    const assistantMessage = this.liveAssistantMessage;
+    if (!conversation || !assistantMessage) {
+      return;
+    }
+    if (!accepted) {
+      this.pendingAssistantAfterSteer = false;
+    }
+    for (const chunk of buffered) {
+      this.applyChunk(
+        this.liveAssistantMessage ?? assistantMessage,
+        conversation,
+        chunk,
+      );
+    }
+  }
+
+  private findActiveToolCall(
+    conversation: Conversation,
+    toolCallId: string,
+  ): NonNullable<ChatMessage['toolCalls']>[number] | undefined {
+    for (let index = conversation.messages.length - 1; index >= 0; index -= 1) {
+      const toolCall = conversation.messages[index]?.toolCalls?.find(
+        call => call.id === toolCallId,
+      );
+      if (toolCall) {
+        return toolCall;
+      }
+    }
+    return undefined;
   }
 
   private emit(): void {
@@ -641,6 +908,12 @@ export class ConversationTaskController {
 
   private isCancelled(): boolean {
     return this.taskStatus === 'cancelled';
+  }
+
+  private isActive(): boolean {
+    return this.taskStatus === 'running'
+      || this.taskStatus === 'waiting-approval'
+      || this.taskStatus === 'waiting-input';
   }
 
   private completeAssistantTurn(

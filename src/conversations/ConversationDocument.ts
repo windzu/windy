@@ -1,8 +1,8 @@
 import type { Conversation, ToolCallInfo } from '../core/types';
 
-export const CONVERSATION_DOCUMENT_VERSION = 2;
+export const CONVERSATION_DOCUMENT_VERSION = 3;
 
-export interface ConversationDocumentV2 {
+export interface ConversationDocumentV3 {
   version: typeof CONVERSATION_DOCUMENT_VERSION;
   conversation: Conversation;
 }
@@ -40,6 +40,30 @@ function isValidActiveTurn(value: unknown): boolean {
       value.interruptedAt === undefined
       || isFiniteNumber(value.interruptedAt)
     )
+  );
+}
+
+function isValidQueuedTurn(value: unknown): boolean {
+  if (!isRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value.id === 'string'
+    && typeof value.content === 'string'
+    && typeof value.primaryPagePath === 'string'
+    && isFiniteNumber(value.createdAt)
+    && (
+      value.displayContent === undefined
+      || typeof value.displayContent === 'string'
+    )
+    && (
+      value.referencedPagePaths === undefined
+      || (
+        Array.isArray(value.referencedPagePaths)
+        && value.referencedPagePaths.every(path => typeof path === 'string')
+      )
+    )
+    && (value.attachments === undefined || Array.isArray(value.attachments))
   );
 }
 
@@ -116,6 +140,13 @@ function decodeConversation(value: unknown, expectedId: string): Conversation {
       value.activeTurn !== undefined
       && !isValidActiveTurn(value.activeTurn)
     )
+    || (
+      value.queuedTurns !== undefined
+      && (
+        !Array.isArray(value.queuedTurns)
+        || !value.queuedTurns.every(isValidQueuedTurn)
+      )
+    )
   ) {
     throw new Error(`Conversation "${expectedId}" has an invalid schema.`);
   }
@@ -136,7 +167,11 @@ export function decodeConversationDocument(
   }
 
   if ('version' in value) {
-    if (value.version !== 1 && value.version !== CONVERSATION_DOCUMENT_VERSION) {
+    if (
+      value.version !== 1
+      && value.version !== 2
+      && value.version !== CONVERSATION_DOCUMENT_VERSION
+    ) {
       throw new Error(
         `Conversation "${expectedId}" uses unsupported schema version "${String(value.version)}".`,
       );
@@ -155,7 +190,7 @@ export function decodeConversationDocument(
 
 export function encodeConversationDocument(
   conversation: Conversation,
-): ConversationDocumentV2 {
+): ConversationDocumentV3 {
   return {
     version: CONVERSATION_DOCUMENT_VERSION,
     conversation: structuredClone(conversation),

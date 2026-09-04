@@ -92,7 +92,16 @@ not used as a large background or for ordinary body text.
 ## Interaction states
 
 - `idle`: composer ready; no status label required.
-- `running`: animated status, stop action, context controls disabled.
+- `running`: animated status and a separate stop action; the composer, page
+  references, and file attachments remain available for the next message.
+- Sending while a turn is active creates a visible queued card. Queued cards
+  show FIFO position and run automatically after the active turn ends.
+- Codex-backed queued cards expose `Send now`. The first click opens an inline
+  confirmation; only the confirmed action calls provider steering. Accepted
+  steering removes the card from the queue and records the input as an
+  interrupt message, so it cannot execute again during FIFO draining.
+- Model, reasoning-effort, and permission controls remain locked while a turn
+  is active because they apply to the running provider session.
 - `waiting-approval`: approval card and highlighted activity state.
 - `waiting-input`: inline questions in the scrollable transcript and a
   highlighted activity state until the user responds.
@@ -113,6 +122,9 @@ not used as a large background or for ordinary body text.
 - The current page is visible exactly once in the shell or composer.
 - Empty-state actions create a conversation only after an explicit click.
 - The composer remains reachable while the transcript scrolls independently.
+- The composer accepts text, page references, and files during active work.
+- Active-turn submissions appear as ordered queue cards and execute once.
+- Immediate steering requires a second, explicit confirmation action.
 - A user can interrupt automatic following with one upward scroll gesture.
 - Streaming and task completion preserve a manually selected viewport.
 - `Back to latest` is visible while following is suspended and restores it on

@@ -10,6 +10,7 @@ export {
   type ImageAttachment,
   type FileAttachment,
   type ImageMediaType,
+  type QueuedTurn,
   type SessionMetadata,
   type StreamChunk,
   type UsageInfo,

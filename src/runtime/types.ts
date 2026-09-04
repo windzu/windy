@@ -31,6 +31,8 @@ export interface ConversationRuntimeSnapshot {
   error: string | null;
   pendingApproval: PendingApproval | null;
   pendingUserInput: PendingUserInput | null;
+  canSteer: boolean;
+  steeringQueuedTurnIds: string[];
 }
 
 export type RuntimeActivityStatus =
