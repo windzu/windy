@@ -13,6 +13,10 @@ import { renderFileAttachmentControl } from './FileAttachmentControl';
 import { renderReasoningEffortPickerControl } from './ReasoningEffortPickerControl';
 import { renderPageReferenceComposer } from './PageReferenceComposer';
 import type { ComposerPageReference } from './pageReferenceMentions';
+import {
+  composerSubmitLabel,
+  isActiveConversationStatus,
+} from './composerState';
 
 export interface WindyComposerOptions {
   primaryPage: PageReference;
@@ -41,15 +45,11 @@ export function renderWindyComposer(
   options: WindyComposerOptions,
 ): void {
   const composer = container.createDiv('windy-view__composer');
-  const isRunning = (
-    options.status === 'running'
-    || options.status === 'waiting-approval'
-    || options.status === 'waiting-input'
-  );
+  const isRunning = isActiveConversationStatus(options.status);
   let updateSendState = (): void => undefined;
   const fileAttachments = renderFileAttachmentControl(composer, {
     attachments: options.attachments,
-    disabled: isRunning,
+    disabled: false,
     vaultPath: options.vaultPath,
     clipboardImages: options.clipboardImages,
     onChange: attachments => {
@@ -61,7 +61,7 @@ export function renderWindyComposer(
     primaryPage: options.primaryPage,
     text: options.text,
     references: options.references,
-    disabled: isRunning,
+    disabled: false,
     referenceService: options.referenceService,
     onChange: options.onDraftChange,
     onPasteImages: images => {
@@ -80,7 +80,6 @@ export function renderWindyComposer(
   });
   setIcon(addButton, 'plus');
   setTooltip(addButton, 'Add context or files');
-  addButton.disabled = isRunning;
   addButton.addEventListener('click', event => {
     const menu = new Menu();
     menu.addItem(item => item
@@ -115,30 +114,36 @@ export function renderWindyComposer(
     onSelect: options.onReasoningEffortSelect,
   });
   renderYoloControl(rightActions, options, isRunning);
+  if (isRunning) {
+    const stopButton = rightActions.createEl('button', {
+      cls: 'windy-view__stop-button clickable-icon',
+      attr: {
+        type: 'button',
+        'aria-label': 'Stop response',
+      },
+    });
+    setIcon(stopButton, 'square');
+    setTooltip(stopButton, 'Stop response');
+    stopButton.addEventListener('click', options.onStop);
+  }
+  const submitLabel = composerSubmitLabel(options.status);
   const sendButton = rightActions.createEl('button', {
-    cls: `windy-view__send-button clickable-icon${
-      isRunning ? ' is-running' : ''
-    }`,
+    cls: 'windy-view__send-button clickable-icon',
     attr: {
       type: 'button',
-      'aria-label': isRunning ? 'Stop response' : 'Send message',
+      'aria-label': submitLabel,
     },
   });
-  setIcon(sendButton, isRunning ? 'square' : 'arrow-up');
-  setTooltip(sendButton, isRunning ? 'Stop response' : 'Send message');
+  setIcon(sendButton, 'arrow-up');
+  setTooltip(sendButton, submitLabel);
   updateSendState = (): void => {
-    sendButton.disabled = !isRunning
-      && !referenceComposer.getText().trim()
+    sendButton.disabled = !referenceComposer.getText().trim()
       && fileAttachments.getAttachments().length === 0;
   };
   updateSendState();
   referenceComposer.input.addEventListener('input', updateSendState);
   sendButton.addEventListener('click', () => {
-    if (isRunning) {
-      options.onStop();
-    } else {
-      options.onSubmit(referenceComposer.getText());
-    }
+    options.onSubmit(referenceComposer.getText());
   });
 }
 

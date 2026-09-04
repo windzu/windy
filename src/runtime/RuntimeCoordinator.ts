@@ -126,6 +126,14 @@ export class RuntimeCoordinator {
     await (await this.ensureTask(conversationId)).retryInterrupted();
   }
 
+  async steerQueuedTurn(
+    conversationId: string,
+    queuedTurnId: string,
+  ): Promise<void> {
+    await (await this.ensureTask(conversationId))
+      .steerQueuedTurn(queuedTurnId);
+  }
+
   async continueInterrupted(
     conversationId: string,
     primaryPagePath: string,

@@ -140,6 +140,38 @@ describe('ConversationRepository', () => {
     );
   });
 
+  it('persists queued turns in FIFO order', async () => {
+    const path = '.windy/conversations/queued.json';
+    const stored = conversation('queued');
+    stored.queuedTurns = [
+      {
+        id: 'queued-1',
+        content: 'second',
+        primaryPagePath: 'A.md',
+        createdAt: 300,
+      },
+      {
+        id: 'queued-2',
+        content: 'third',
+        primaryPagePath: 'A.md',
+        createdAt: 301,
+      },
+    ];
+    const repository = new ConversationRepository(
+      new MemoryJsonFileAdapter({
+        [path]: JSON.stringify({
+          version: CONVERSATION_DOCUMENT_VERSION,
+          conversation: stored,
+        }),
+      }),
+    );
+
+    assert.deepEqual(
+      (await repository.load('queued'))?.queuedTurns?.map(turn => turn.content),
+      ['second', 'third'],
+    );
+  });
+
   it('repairs duplicate tool events while preserving a terminal result', async () => {
     const path = '.windy/conversations/duplicate-tools.json';
     const stored = conversation('duplicate-tools');

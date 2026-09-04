@@ -389,6 +389,76 @@
   padding: 0 2px;
 }
 
+.windy-queued-turn {
+  border-style: dashed;
+  opacity: 0.9;
+}
+
+.windy-queued-turn__header,
+.windy-queued-turn__actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+}
+
+.windy-queued-turn__header {
+  margin-bottom: 7px;
+}
+
+.windy-queued-turn__author {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+}
+
+.windy-queued-turn__position {
+  color: var(--windy-accent);
+  font-size: var(--font-ui-smaller);
+  font-weight: var(--font-semibold);
+}
+
+.windy-queued-turn__context,
+.windy-queued-turn__actions {
+  color: var(--text-muted);
+  font-size: var(--font-ui-smaller);
+}
+
+.windy-queued-turn__context {
+  margin-top: 7px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.windy-queued-turn__actions {
+  border-top: 1px solid var(--windy-border);
+  margin-top: 9px;
+  padding-top: 7px;
+}
+
+.windy-queued-turn__actions button {
+  font-size: var(--font-ui-smaller);
+  height: 26px;
+  padding: 2px 8px;
+}
+
+.windy-queued-turn__confirmation {
+  color: var(--text-normal);
+  flex: 1 1 100%;
+}
+
+.windy-queued-turn__steering-icon {
+  animation: windy-spin 1.2s linear infinite;
+  color: var(--windy-accent);
+  display: flex;
+}
+
+.windy-queued-turn__steering-icon svg {
+  height: var(--icon-xs);
+  width: var(--icon-xs);
+}
+
 .windy-message__role {
   align-items: center;
   color: var(--text-muted);
@@ -1299,6 +1369,17 @@
   width: 32px;
 }
 
+.windy-view__stop-button {
+  align-items: center;
+  border-radius: 999px;
+  color: var(--text-muted);
+  display: flex;
+  flex: 0 0 auto;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
 .windy-view__send-button:hover {
   background: var(--windy-accent);
   color: white;
@@ -1312,11 +1393,8 @@
   opacity: 1;
 }
 
-.windy-view__send-button.is-running {
-  background: var(--text-normal);
-}
-
-.windy-view__send-button svg {
+.windy-view__send-button svg,
+.windy-view__stop-button svg {
   height: 17px;
   stroke-width: 2.4;
   width: 17px;
@@ -1331,6 +1409,7 @@
 
   .windy-tool--running .windy-tool__icon,
   .windy-activity--running .windy-activity__state-icon,
+  .windy-queued-turn__steering-icon,
   .windy-view__status-dot {
     animation: none;
   }

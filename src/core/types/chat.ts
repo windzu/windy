@@ -111,6 +111,17 @@ export interface PersistedTurnState {
   interruptedAt?: number;
 }
 
+/** A user turn waiting to start after the active turn reaches a terminal state. */
+export interface QueuedTurn {
+  id: string;
+  content: string;
+  displayContent?: string;
+  primaryPagePath: string;
+  referencedPagePaths?: string[];
+  attachments?: FileAttachment[];
+  createdAt: number;
+}
+
 /** Persisted conversation with messages and session state. */
 export interface Conversation {
   id: string;
@@ -140,6 +151,8 @@ export interface Conversation {
   resumeAtMessageId?: string;
   /** Non-terminal turn state used to recover interrupted plugin sessions. */
   activeTurn?: PersistedTurnState;
+  /** User turns waiting to execute in FIFO order. */
+  queuedTurns?: QueuedTurn[];
 }
 
 /** Lightweight conversation metadata for the history dropdown. */

@@ -32,8 +32,9 @@ conversation-specific thread, turn, prompt, approval, and stream state, but
 does not own a child process.
 
 `RuntimeCoordinator` is only the registry and aggregate activity boundary. A
-per-conversation `ConversationTaskController` owns send, cancel, approval, and
-recovery state. Its `TurnCheckpointManager` owns partial-output persistence and
+per-conversation `ConversationTaskController` owns send, FIFO queueing,
+provider steering, cancel, approval, and recovery state. Its
+`TurnCheckpointManager` owns partial-output persistence and
 interruption checkpoints. Concurrent requests to initialize the same
 conversation share one controller and one runtime.
 
