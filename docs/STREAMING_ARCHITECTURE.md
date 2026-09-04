@@ -80,6 +80,11 @@ FIFO and recorded as an interrupt user message. The next provider assistant
 message boundary starts a new assistant segment after that interrupt, while
 the original query stream remains active.
 
+A queued entry may also be undone before steering begins. Removal is persisted
+before the card disappears; a failed write restores the entry at its original
+FIFO position. An entry already being steered cannot be undone because provider
+acceptance is the ownership boundary.
+
 ### 3.4 Snapshot scheduling
 
 Progress snapshots are coalesced to at most one update every 100 milliseconds.
@@ -87,9 +92,10 @@ This bounds full-conversation cloning and current full-view rendering to 10 Hz.
 Approval, user-input, cancellation, failure, and terminal transitions bypass
 the scheduler and emit immediately.
 
-The current full-view renderer is retained in the first implementation phase.
-A keyed incremental renderer is a follow-up optimization behind the same
-snapshot contract.
+Transcript contents still use the bounded full renderer, but the keyed composer
+DOM node remains mounted for every snapshot of the same conversation. Snapshot
+updates patch its status controls in place, preserving browser focus, caret,
+IME composition, references, files, and draft state.
 
 ### 3.5 Checkpoint scheduling
 
@@ -121,7 +127,7 @@ the authoritative stored duration.
 | Persist and render every delta | Simplest state flow | Unbounded local work; provider completion can sit behind UI and I/O backlog | Rejected |
 | Debounce until streaming stops | Minimal updates | UI appears frozen during long generations | Rejected |
 | Rate-limited snapshots and checkpoints | Bounded cost; preserves live progress and recovery | Full renderer still has a bounded recurring cost | Selected |
-| Immediate keyed incremental DOM rewrite | Best theoretical UI efficiency | Couples a state-machine change with a high-risk view rewrite | Follow-up phase |
+| Immediate keyed transcript DOM rewrite | Best theoretical UI efficiency | Couples a state-machine change with a high-risk view rewrite | Follow-up phase |
 
 ## 5. Implementation plan
 

@@ -40,10 +40,15 @@ export interface WindyComposerOptions {
   onStop: () => void;
 }
 
+export interface WindyComposerControl {
+  element: HTMLElement;
+  updateStatus(status: ConversationTaskStatus): void;
+}
+
 export function renderWindyComposer(
   container: HTMLElement,
   options: WindyComposerOptions,
-): void {
+): WindyComposerControl {
   const composer = container.createDiv('windy-view__composer');
   const isRunning = isActiveConversationStatus(options.status);
   let updateSendState = (): void => undefined;
@@ -92,13 +97,9 @@ export function renderWindyComposer(
       .onClick(() => fileAttachments.openPicker()));
     menu.showAtMouseEvent(event);
   });
-  if (options.status !== 'idle') {
-    const status = leftActions.createDiv({
-      cls: `windy-view__status windy-view__status--${options.status}`,
-    });
-    status.createSpan('windy-view__status-dot');
-    status.createSpan({ text: statusLabel(options.status) });
-  }
+  const status = leftActions.createDiv('windy-view__status');
+  status.createSpan('windy-view__status-dot');
+  const statusText = status.createSpan();
   const rightActions = actions.createDiv('windy-view__composer-actions-right');
   renderModelPickerControl(rightActions, {
     selectedModel: options.selectedModel,
@@ -113,19 +114,17 @@ export function renderWindyComposer(
     models: options.models,
     onSelect: options.onReasoningEffortSelect,
   });
-  renderYoloControl(rightActions, options, isRunning);
-  if (isRunning) {
-    const stopButton = rightActions.createEl('button', {
-      cls: 'windy-view__stop-button clickable-icon',
-      attr: {
-        type: 'button',
-        'aria-label': 'Stop response',
-      },
-    });
-    setIcon(stopButton, 'square');
-    setTooltip(stopButton, 'Stop response');
-    stopButton.addEventListener('click', options.onStop);
-  }
+  const yoloControl = renderYoloControl(rightActions, options, isRunning);
+  const stopButton = rightActions.createEl('button', {
+    cls: 'windy-view__stop-button clickable-icon',
+    attr: {
+      type: 'button',
+      'aria-label': 'Stop response',
+    },
+  });
+  setIcon(stopButton, 'square');
+  setTooltip(stopButton, 'Stop response');
+  stopButton.addEventListener('click', options.onStop);
   const submitLabel = composerSubmitLabel(options.status);
   const sendButton = rightActions.createEl('button', {
     cls: 'windy-view__send-button clickable-icon',
@@ -145,15 +144,40 @@ export function renderWindyComposer(
   sendButton.addEventListener('click', () => {
     options.onSubmit(referenceComposer.getText());
   });
+
+  const updateStatus = (nextStatus: ConversationTaskStatus): void => {
+    const active = isActiveConversationStatus(nextStatus);
+    status.className = `windy-view__status windy-view__status--${nextStatus}`;
+    status.hidden = nextStatus === 'idle';
+    statusText.setText(statusLabel(nextStatus));
+    rightActions.querySelector<HTMLButtonElement>(
+      '.windy-view__model-trigger',
+    )?.toggleAttribute('disabled', active);
+    rightActions.querySelector<HTMLButtonElement>(
+      '.windy-view__effort-trigger',
+    )?.toggleAttribute('disabled', active);
+    yoloControl.setDisabled(active);
+    stopButton.hidden = !active;
+    const nextSubmitLabel = composerSubmitLabel(nextStatus);
+    sendButton.setAttribute('aria-label', nextSubmitLabel);
+    setTooltip(sendButton, nextSubmitLabel);
+  };
+  updateStatus(options.status);
+  return { element: composer, updateStatus };
+}
+
+interface YoloControl {
+  setDisabled(disabled: boolean): void;
 }
 
 function renderYoloControl(
   container: HTMLElement,
   options: WindyComposerOptions,
   disabled: boolean,
-): void {
+): YoloControl {
   let enabled = options.permissionMode === 'yolo';
   let saving = false;
+  let currentDisabled = disabled;
   const control = container.createEl('button', {
     cls: 'windy-view__yolo-control',
     attr: {
@@ -175,7 +199,7 @@ function renderYoloControl(
       'aria-label',
       enabled ? 'Disable YOLO mode' : 'Enable YOLO mode',
     );
-    control.disabled = disabled || saving;
+    control.disabled = currentDisabled || saving;
     setTooltip(
       control,
       enabled
@@ -186,7 +210,7 @@ function renderYoloControl(
   update();
 
   control.addEventListener('click', () => {
-    if (disabled || saving) {
+    if (currentDisabled || saving) {
       return;
     }
     const nextMode: PermissionMode = enabled ? 'normal' : 'yolo';
@@ -207,6 +231,13 @@ function renderYoloControl(
       update();
     });
   });
+
+  return {
+    setDisabled(nextDisabled: boolean): void {
+      currentDisabled = nextDisabled;
+      update();
+    },
+  };
 }
 
 function statusLabel(status: ConversationTaskStatus): string {

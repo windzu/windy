@@ -56,7 +56,7 @@ export function buildActivityViewModel(
       ? formatCurrentActivity(items.at(-1))
       : undefined,
     items,
-    defaultExpanded: isActive,
+    defaultExpanded: false,
     shouldRender: isActive
       || items.length > 0
       || message.durationSeconds !== undefined,

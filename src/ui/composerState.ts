@@ -11,3 +11,11 @@ export function isActiveConversationStatus(
 export function composerSubmitLabel(status: ConversationTaskStatus): string {
   return isActiveConversationStatus(status) ? 'Queue message' : 'Send message';
 }
+
+export function shouldReuseComposer(
+  currentKey: string | null,
+  nextKey: string | null,
+  forceRebuild: boolean,
+): boolean {
+  return !forceRebuild && currentKey !== null && currentKey === nextKey;
+}
