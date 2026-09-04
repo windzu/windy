@@ -14,7 +14,7 @@ export type ActivityState =
 
 export interface ActivityItem {
   id: string;
-  kind: 'tool' | 'reasoning' | 'context' | 'subagent';
+  kind: 'tool' | 'reasoning' | 'commentary' | 'context' | 'subagent';
   title: string;
   status: ToolCallInfo['status'];
   detail?: string;
@@ -34,6 +34,7 @@ export function buildActivityViewModel(
   message: ChatMessage,
   isLatestAssistant: boolean,
   runtimeStatus: ConversationTaskStatus,
+  liveElapsedSeconds?: number,
 ): ActivityViewModel {
   const state = resolveActivityState(message, isLatestAssistant, runtimeStatus);
   const items = buildActivityItems(message);
@@ -47,12 +48,15 @@ export function buildActivityViewModel(
 
   return {
     state,
-    summary: formatActivitySummary(state, message.durationSeconds),
+    summary: formatActivitySummary(
+      state,
+      isActive ? liveElapsedSeconds : message.durationSeconds,
+    ),
     currentActivity: state === 'running'
       ? formatCurrentActivity(items.at(-1))
       : undefined,
     items,
-    defaultExpanded: false,
+    defaultExpanded: isActive,
     shouldRender: isActive
       || items.length > 0
       || message.durationSeconds !== undefined,
@@ -63,7 +67,7 @@ function formatCurrentActivity(item: ActivityItem | undefined): string | undefin
   if (!item) {
     return undefined;
   }
-  if (item.kind !== 'reasoning' || !item.detail) {
+  if (!item.detail) {
     return item.title;
   }
 
@@ -90,11 +94,11 @@ export function formatActivitySummary(
     : ` ${formatDuration(durationSeconds)}`;
   switch (state) {
     case 'running':
-      return 'Working…';
+      return duration ? `Working for${duration}` : 'Working…';
     case 'waiting-approval':
-      return 'Waiting for approval';
+      return duration ? `Waiting for approval ·${duration}` : 'Waiting for approval';
     case 'waiting-input':
-      return 'Waiting for input';
+      return duration ? `Waiting for input ·${duration}` : 'Waiting for input';
     case 'completed':
       return duration ? `Worked for${duration}` : 'Work completed';
     case 'failed':
@@ -104,6 +108,10 @@ export function formatActivitySummary(
     case 'interrupted':
       return duration ? `Interrupted after${duration}` : 'Work interrupted';
   }
+}
+
+export function elapsedTurnSeconds(startedAt: number, now: number): number {
+  return Math.max(0, Math.floor((now - startedAt) / 1_000));
 }
 
 export function formatDuration(durationSeconds: number): string {
@@ -214,6 +222,7 @@ function buildActivityItems(message: ChatMessage): ActivityItem[] {
   const seenToolIds = new Set<string>();
   let thinkingChunks: string[] = [];
   let reasoningIndex = 0;
+  let commentaryIndex = 0;
   let contextIndex = 0;
 
   const flushThinking = (): void => {
@@ -239,6 +248,21 @@ function buildActivityItems(message: ChatMessage): ActivityItem[] {
     }
 
     flushThinking();
+    if (block.type === 'text') {
+      if (block.phase === 'commentary' && block.content.trim()) {
+        items.push({
+          id: block.itemId
+            ? `commentary-${block.itemId}`
+            : `commentary-${commentaryIndex}`,
+          kind: 'commentary',
+          title: 'Update',
+          status: 'completed',
+          detail: block.content.trim(),
+        });
+        commentaryIndex += 1;
+      }
+      continue;
+    }
     if (block.type === 'tool_use') {
       const toolCall = toolCalls.get(block.toolId);
       if (toolCall && !seenToolIds.has(toolCall.id)) {

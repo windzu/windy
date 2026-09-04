@@ -4,7 +4,9 @@ import test from 'node:test';
 import type { ChatMessage, ToolCallInfo } from '../../src/core/types';
 import {
   buildActivityViewModel,
+  elapsedTurnSeconds,
   formatActivityToolTitle,
+  formatActivitySummary,
   formatDuration,
 } from '../../src/ui/activityFormatting';
 
@@ -38,6 +40,13 @@ test('formats durations without a model-generated summary', () => {
   assert.equal(formatDuration(42), '42s');
   assert.equal(formatDuration(102), '1m 42s');
   assert.equal(formatDuration(3_720), '1h 2m');
+  assert.equal(elapsedTurnSeconds(1_000, 13_900), 12);
+  assert.equal(elapsedTurnSeconds(10_000, 9_000), 0);
+  assert.equal(formatActivitySummary('running', 12), 'Working for 12s');
+  assert.equal(
+    formatActivitySummary('waiting-approval', 12),
+    'Waiting for approval · 12s',
+  );
 });
 
 test('derives readable activity titles from structured tool input', () => {
@@ -106,7 +115,7 @@ test('preserves activity order while coalescing reasoning deltas', () => {
   );
 });
 
-test('keeps active turns collapsed while reporting the current activity', () => {
+test('keeps active turns expanded while reporting live elapsed time', () => {
   const model = buildActivityViewModel(
     assistantMessage({
       content: '',
@@ -116,11 +125,12 @@ test('keeps active turns collapsed while reporting the current activity', () => 
     }),
     true,
     'running',
+    12,
   );
 
-  assert.equal(model.summary, 'Working…');
+  assert.equal(model.summary, 'Working for 12s');
   assert.equal(model.currentActivity, 'Inspecting the activity renderer');
-  assert.equal(model.defaultExpanded, false);
+  assert.equal(model.defaultExpanded, true);
   assert.equal(model.shouldRender, true);
   assert.equal(model.items.length, 1);
 });
@@ -135,7 +145,39 @@ test('uses the latest tool title as the current activity', () => {
   }), true, 'running');
 
   assert.equal(model.currentActivity, 'Ran npm test');
-  assert.equal(model.defaultExpanded, false);
+  assert.equal(model.defaultExpanded, true);
+});
+
+test('keeps commentary and tool activity in provider order', () => {
+  const command = toolCall('Bash', { command: 'npm test' });
+  command.id = 'command-1';
+  const model = buildActivityViewModel(assistantMessage({
+    content: 'Done.',
+    toolCalls: [command],
+    contentBlocks: [
+      {
+        type: 'text',
+        content: 'I will inspect the renderer first.',
+        phase: 'commentary',
+        itemId: 'commentary-1',
+      },
+      { type: 'tool_use', toolId: command.id },
+      {
+        type: 'text',
+        content: 'Done.',
+        phase: 'final_answer',
+        itemId: 'final-1',
+      },
+    ],
+  }), false, 'idle');
+
+  assert.deepEqual(
+    model.items.map(item => [item.kind, item.title, item.detail]),
+    [
+      ['commentary', 'Update', 'I will inspect the renderer first.'],
+      ['tool', 'Ran npm test', undefined],
+    ],
+  );
 });
 
 test('uses persisted terminal state after the runtime is reloaded', () => {

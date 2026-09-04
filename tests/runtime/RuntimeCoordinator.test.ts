@@ -366,6 +366,62 @@ describe('RuntimeCoordinator', () => {
     ]);
   });
 
+  it('stores commentary in order without mixing it into the final answer', async () => {
+    const conversations = new Map([['a', conversation('a')]]);
+    const coordinator = new RuntimeCoordinator(
+      host,
+      new MemoryConversationStore(conversations),
+      () => createFakeRuntime({
+        scriptedChunks: [
+          {
+            type: 'text',
+            content: 'I will inspect the renderer.',
+            phase: 'commentary',
+            itemId: 'commentary-1',
+          },
+          {
+            type: 'tool_use',
+            id: 'command-1',
+            name: 'Bash',
+            input: { command: 'npm test' },
+          },
+          {
+            type: 'tool_result',
+            id: 'command-1',
+            content: 'passed',
+          },
+          {
+            type: 'text',
+            content: 'Implemented.',
+            phase: 'final_answer',
+            itemId: 'final-1',
+          },
+        ],
+      }),
+    );
+
+    await coordinator.send('a', 'stream phases', 'A.md');
+    const assistant = (await coordinator.getSnapshot('a'))
+      .conversation?.messages.at(-1);
+
+    assert.equal(assistant?.content, 'Implemented.');
+    assert.deepEqual(assistant?.contentBlocks, [
+      {
+        type: 'text',
+        content: 'I will inspect the renderer.',
+        phase: 'commentary',
+        itemId: 'commentary-1',
+      },
+      { type: 'tool_use', toolId: 'command-1' },
+      {
+        type: 'text',
+        content: 'Implemented.',
+        phase: 'final_answer',
+        itemId: 'final-1',
+      },
+    ]);
+  });
+
   it('coalesces progress snapshots instead of emitting once per delta', async () => {
     const conversations = new Map([['a', conversation('a')]]);
     const coordinator = new RuntimeCoordinator(

@@ -249,6 +249,7 @@ export class WindyView extends ItemView {
       snapshot?.conversation?.messages ?? [],
       page.path,
       snapshot?.status ?? 'idle',
+      snapshot?.conversation?.activeTurn?.startedAt,
     );
     this.messageScrollPositions.trackActiveContainer(scrollKey, messages);
     this.messageScrollPositions.restoreActivePosition(

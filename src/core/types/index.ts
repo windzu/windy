@@ -1,5 +1,6 @@
 // Chat types
 export {
+  type AssistantMessagePhase,
   type AssistantTurnStatus,
   type ChatMessage,
   type ContentBlock,

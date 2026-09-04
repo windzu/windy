@@ -5,6 +5,7 @@ import * as path from 'path';
 import {
   buildSystemPrompt,
   computeSystemPromptKey,
+  type SystemPromptBuildOptions,
   type SystemPromptSettings,
 } from '../../../core/prompt/mainAgent';
 import type { ProviderHost } from '../../../core/providers/ProviderHost';
@@ -83,6 +84,14 @@ import {
   CODEX_WORKSPACE_DEPENDENCY_TOOL_VERSION,
   createCodexWorkspaceDependencyTool,
 } from './CodexWorkspaceDependencyTool';
+
+const CODEX_PROGRESS_UPDATE_INSTRUCTIONS = `## Progress Updates
+
+For work that requires tools or multiple steps, send a brief user-visible update before the first tool call. State what you are about to check or do in one or two sentences. Continue with concise updates at meaningful transitions so the user can follow the work. Do not narrate trivial operations or repeat the same status. Keep the final answer separate from these intermediate updates.`;
+
+function codexSystemPromptOptions(): SystemPromptBuildOptions {
+  return { appendices: [CODEX_PROGRESS_UPDATE_INSTRUCTIONS] };
+}
 
 function resolveCodexSandboxConfig(
   permissionMode: string,
@@ -280,7 +289,10 @@ export class CodexChatRuntime implements ChatRuntime {
     this.assertLifecycleCurrent(generation);
     const readyState = await this.gateway.ensureReady(options);
     this.assertLifecycleCurrent(generation);
-    const promptKey = computeSystemPromptKey(this.getSystemPromptSettings());
+    const promptKey = computeSystemPromptKey(
+      this.getSystemPromptSettings(),
+      codexSystemPromptOptions(),
+    );
     if (
       readyState.generation !== this.gatewayGeneration
       || promptKey !== this.loadedPromptKey
@@ -324,13 +336,23 @@ export class CodexChatRuntime implements ChatRuntime {
     this.pendingTurnNotifications = [];
 
     const promptSettings = this.getSystemPromptSettings();
-    const promptText = buildSystemPrompt(promptSettings);
+    const promptText = buildSystemPrompt(
+      promptSettings,
+      codexSystemPromptOptions(),
+    );
 
     const enqueueChunk = (chunk: StreamChunk): void => {
       const previous = this.chunkBuffer.at(-1);
       if (
-        (chunk.type === 'text' || chunk.type === 'thinking')
-        && previous?.type === chunk.type
+        chunk.type === 'thinking'
+        && previous?.type === 'thinking'
+      ) {
+        previous.content += chunk.content;
+      } else if (
+        chunk.type === 'text'
+        && previous?.type === 'text'
+        && previous.phase === chunk.phase
+        && previous.itemId === chunk.itemId
       ) {
         previous.content += chunk.content;
       } else {

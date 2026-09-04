@@ -87,3 +87,69 @@ test('streams readable reasoning summaries without mixing in raw reasoning', () 
     { type: 'thinking', content: 'Inspecting the implementation.' },
   ]);
 });
+
+test('preserves commentary and final answer phases on agent messages', () => {
+  const chunks: StreamChunk[] = [];
+  const router = new CodexNotificationRouter(chunk => chunks.push(chunk));
+  router.beginTurn({ isPlanTurn: false });
+
+  router.handleNotification('item/started', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    item: {
+      type: 'agentMessage',
+      id: 'commentary-1',
+      text: '',
+      phase: 'commentary',
+      memoryCitation: null,
+    },
+  });
+  router.handleNotification('item/agentMessage/delta', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'commentary-1',
+    delta: 'I will inspect the renderer first.',
+  });
+  router.handleNotification('item/started', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    item: {
+      type: 'agentMessage',
+      id: 'final-1',
+      text: '',
+      phase: 'final_answer',
+      memoryCitation: null,
+    },
+  });
+  router.handleNotification('item/agentMessage/delta', {
+    threadId: 'thread-1',
+    turnId: 'turn-1',
+    itemId: 'final-1',
+    delta: 'Implemented.',
+  });
+
+  assert.deepEqual(chunks, [
+    {
+      type: 'assistant_message_start',
+      itemId: 'commentary-1',
+      phase: 'commentary',
+    },
+    {
+      type: 'text',
+      content: 'I will inspect the renderer first.',
+      itemId: 'commentary-1',
+      phase: 'commentary',
+    },
+    {
+      type: 'assistant_message_start',
+      itemId: 'final-1',
+      phase: 'final_answer',
+    },
+    {
+      type: 'text',
+      content: 'Implemented.',
+      itemId: 'final-1',
+      phase: 'final_answer',
+    },
+  ]);
+});

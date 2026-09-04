@@ -550,6 +550,15 @@
   padding: 6px 8px;
 }
 
+.windy-activity__commentary {
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  line-height: var(--line-height-normal);
+  overflow-wrap: anywhere;
+  padding: 6px 8px;
+  white-space: pre-wrap;
+}
+
 .windy-tool {
   background: transparent;
   border: 1px solid transparent;
