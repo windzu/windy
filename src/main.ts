@@ -19,6 +19,7 @@ import type { ConversationModelService } from './models/types';
 import { CodexConversationModelService } from './providers/codex/CodexConversationModelService';
 import { CodexAppServerGateway } from './providers/codex/runtime/CodexAppServerGateway';
 import { CodexChatRuntime } from './providers/codex/runtime/CodexChatRuntime';
+import { resolveCodexAppServerLaunchSpec } from './providers/codex/runtime/codexAppServerSupport';
 import { RuntimeCoordinator } from './runtime/RuntimeCoordinator';
 import { JsonFileStore } from './storage/JsonFileStore';
 import {
@@ -90,6 +91,12 @@ export default class WindyPlugin extends Plugin {
       this.windySettings,
       this.conversationModels,
       settings => this.saveData(settings),
+      async () => {
+        const spec = await resolveCodexAppServerLaunchSpec(providerHost);
+        return spec.target.method === 'wsl'
+          ? [spec.command, ...spec.args].join(' ')
+          : spec.command;
+      },
     ));
     this.pageReferences = new PageReferenceService(() => (
       this.app.vault.getFiles().map(file => ({

@@ -95,13 +95,27 @@ available for testing GitHub releases directly.
 ### Requirements
 
 - Obsidian 1.7.2 or newer on desktop;
-- [Codex CLI](https://github.com/openai/codex) installed and available as
-  `codex` on the local machine;
+- a Codex runtime: the ChatGPT/Codex desktop app on macOS, or
+  [Codex CLI](https://github.com/openai/codex) available as `codex` on your `PATH`;
 - an authenticated Codex session.
 
 Run `codex --version` to confirm the CLI installation. Run
 `codex login` to sign in with ChatGPT, then use `codex login status` to verify
 the active session. API-key authentication supported by Codex CLI also works.
+
+Under **Settings → Windy → Codex runtime**, check the selected executable.
+On macOS, automatic selection prefers the executable bundled with ChatGPT.app
+or Codex.app in `/Applications` or your user Applications directory before
+falling back to `codex` on PATH. **Use desktop app** pins the detected bundled
+executable; an explicit **Codex executable** always takes precedence. Reload
+Windy after saving a change. Runtime selection stays fixed during a plugin
+session so changing settings cannot restart active conversations.
+
+If an older runtime reports `paginated_threads is not supported yet`, select a
+desktop-app runtime compatible with that conversation, reload Windy, and retry.
+Windy preserves the existing conversation and does not recreate or rewrite its
+history. Updating a terminal-installed CLI and updating the desktop app are
+separate operations; their installed versions may differ.
 
 ### Install from Community Plugins (recommended)
 
