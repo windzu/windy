@@ -15,9 +15,12 @@ import type {
   ConversationModelOption,
   ConversationModelService,
 } from '../models/types';
+import { getCodexProviderSettings } from '../providers/codex/settings';
+import { findDesktopCodex } from '../providers/codex/runtime/CodexExecutableResolver';
 
 export class WindySettingTab extends PluginSettingTab {
   private renderGeneration = 0;
+  private savingExecutable = false;
 
   constructor(
     app: App,
@@ -25,6 +28,7 @@ export class WindySettingTab extends PluginSettingTab {
     private readonly settings: WindySettings,
     private readonly models: ConversationModelService,
     private readonly save: (settings: WindySettings) => Promise<void>,
+    private readonly getExecutable: () => Promise<string | null>,
   ) {
     super(app, plugin);
   }
@@ -33,12 +37,14 @@ export class WindySettingTab extends PluginSettingTab {
     const generation = ++this.renderGeneration;
     const { containerEl } = this;
     containerEl.empty();
-    new Setting(containerEl).setName('Conversation defaults').setHeading();
-    containerEl.createEl('p', {
+    this.renderRuntimeSettings();
+    const modelContainer = containerEl.createDiv();
+    new Setting(modelContainer).setName('Conversation defaults').setHeading();
+    modelContainer.createEl('p', {
       text: 'Defaults apply only to conversations created after you change them. '
         + 'Each conversation stores the concrete model and reasoning effort it starts with.',
     });
-    new Setting(containerEl)
+    new Setting(modelContainer)
       .setName('New conversation model')
       .setDesc('Loading the live Codex model catalog…');
 
@@ -46,21 +52,23 @@ export class WindySettingTab extends PluginSettingTab {
       if (generation !== this.renderGeneration) {
         return;
       }
-      this.renderModelSettings(options);
+      this.renderModelSettings(options, modelContainer);
     }).catch(error => {
       if (generation !== this.renderGeneration) {
         return;
       }
-      containerEl.empty();
-      new Setting(containerEl).setName('Conversation defaults').setHeading();
-      new Setting(containerEl)
+      modelContainer.empty();
+      new Setting(modelContainer).setName('Conversation defaults').setHeading();
+      new Setting(modelContainer)
         .setName('Could not load Codex models')
         .setDesc(error instanceof Error ? error.message : String(error));
     });
   }
 
-  private renderModelSettings(options: ConversationModelOption[]): void {
-    const { containerEl } = this;
+  private renderModelSettings(
+    options: ConversationModelOption[],
+    containerEl: HTMLElement,
+  ): void {
     containerEl.empty();
     new Setting(containerEl).setName('Conversation defaults').setHeading();
     containerEl.createEl('p', {
@@ -152,6 +160,70 @@ export class WindySettingTab extends PluginSettingTab {
           `${selectedModel.label} · ${this.formatEffort(effectiveEffort)}. `
             + 'This concrete pair will be stored when a new conversation starts.',
         );
+    }
+  }
+
+  private renderRuntimeSettings(): void {
+    const { containerEl } = this;
+    new Setting(containerEl).setName('Codex runtime').setHeading();
+    const current = new Setting(containerEl)
+      .setName('Selected executable')
+      .setDesc('Resolving the executable used by this Windy session…');
+    void this.getExecutable().then(executable => {
+      current.setDesc(executable === 'codex'
+        ? 'codex (resolved through PATH)'
+        : executable ?? 'Not available');
+    }).catch(error => {
+      current.setDesc(error instanceof Error ? error.message : String(error));
+    });
+    let draft = getCodexProviderSettings(this.settings).cliPath;
+    const setting = new Setting(containerEl)
+      .setName('Codex executable')
+      .setDesc('Leave empty to prefer the desktop app on macOS, then PATH. '
+        + 'An explicit executable overrides automatic selection. Reload Windy after saving.')
+      .addText(text => {
+        text.setPlaceholder('Automatic').setValue(draft);
+        text.onChange(value => { draft = value; });
+      });
+    setting.addButton(button => {
+      button.setButtonText('Save').onClick(() => {
+        button.setDisabled(true);
+        void this.saveExecutable(draft.trim()).finally(() => button.setDisabled(false));
+      });
+    });
+    const desktop = findDesktopCodex();
+    if (desktop) {
+      new Setting(containerEl)
+        .setName('Use desktop app Codex')
+        .setDesc(desktop)
+        .addButton(button => {
+          button.setButtonText('Use desktop app').onClick(() => {
+            button.setDisabled(true);
+            void this.saveExecutable(desktop).finally(() => button.setDisabled(false));
+          });
+        });
+    }
+  }
+
+  private async saveExecutable(cliPath: string): Promise<void> {
+    if (this.savingExecutable) {
+      return;
+    }
+    this.savingExecutable = true;
+    const codex = this.settings.providerConfigs.codex ??= {};
+    const previous = codex.cliPath;
+    codex.cliPath = cliPath;
+    try {
+      await this.save(this.settings);
+      new Notice('Codex executable saved. Reload Windy to apply it.');
+      this.display();
+    } catch (error) {
+      codex.cliPath = previous;
+      new Notice(`Could not save Codex executable: ${
+        error instanceof Error ? error.message : String(error)
+      }`);
+    } finally {
+      this.savingExecutable = false;
     }
   }
 

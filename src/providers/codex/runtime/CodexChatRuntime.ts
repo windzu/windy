@@ -56,6 +56,7 @@ import { type CodexProviderState, getCodexState } from '../types';
 import {
   CodexAppServerGateway,
 } from './CodexAppServerGateway';
+import { formatCodexRuntimeError } from './CodexExecutableResolver';
 import type {
   SandboxPolicy,
   ServerRequestResolvedNotification,
@@ -625,7 +626,11 @@ export class CodexChatRuntime implements ChatRuntime {
         yield { type: 'done' };
         return;
       }
-      const message = err instanceof Error ? err.message : 'Unknown Codex error';
+      const message = formatCodexRuntimeError(
+        err,
+        this.launchSpec?.command,
+        this.runtimeContext?.initializeResult.userAgent,
+      );
       yield { type: 'error', content: message };
       yield { type: 'done' };
       return;

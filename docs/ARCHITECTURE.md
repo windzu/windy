@@ -27,6 +27,17 @@ The plugin owns one `CodexAppServerGateway` for the lifetime of the Vault
 plugin instance. The gateway owns the child process, RPC transport, launch
 configuration, and process generation.
 
+`CodexExecutableResolver` honors an explicit CLI path first. On native macOS,
+automatic discovery checks ChatGPT.app and Codex.app in system and user
+Applications directories before falling back to PATH. Other platforms and WSL
+retain command-based resolution. A missing explicitly pinned path fails with
+an actionable error rather than silently switching executables.
+`WindyProviderHost` pins the resolved executable per execution target until
+plugin reload, so settings changes cannot replace a running provider process.
+Unsupported paginated-history errors identify the executable and handshake
+version and direct the user to the runtime settings without changing session
+identity or rewriting saved history.
+
 Each conversation owns a lightweight `CodexChatRuntime`. It retains
 conversation-specific thread, turn, prompt, approval, and stream state, but
 does not own a child process.
