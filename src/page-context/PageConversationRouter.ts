@@ -98,7 +98,18 @@ export class PageConversationRouter {
   }
 
   refresh(): void {
-    this.routeTo(this.pageContext.getActivePage());
+    const generation = this.routeGeneration;
+    this.pageContext.refresh();
+    if (generation === this.routeGeneration) {
+      this.routeTo(this.pageContext.getActivePage());
+    }
+  }
+
+  async migratePagePath(oldPath: string, newPath: string): Promise<void> {
+    // The index updates in memory before saving, so publish the new route now.
+    const migration = this.index.migratePath(oldPath, newPath);
+    this.refresh();
+    await migration;
   }
 
   private routeTo(page: ActivePage | null): void {

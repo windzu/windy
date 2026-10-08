@@ -129,11 +129,8 @@ export default class WindyPlugin extends Plugin {
     });
     this.registerEvent(
       this.app.vault.on('rename', (file, oldPath) => {
-        if (!this.pageIndex || !this.router) {
-          return;
-        }
-        void this.pageIndex.migratePath(oldPath, file.path).then(() => {
-          this.router?.refresh();
+        void this.router?.migratePagePath(oldPath, file.path).catch(error => {
+          console.error('Windy failed to persist renamed page conversations.', error);
         });
       }),
     );
