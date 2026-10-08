@@ -89,6 +89,10 @@ runtime accepts only notifications matching its current `threadId` and
   values. A new draft resolves the global policies against the live Codex
   model catalog, and its first send persists that resolved pair. Missing
   legacy values are materialized from the previously persisted behavior.
+- Model catalog reads query `model/list` again, coalescing only concurrent
+  requests. The last successful result supplies synchronous labels; it never
+  prevents a later refresh. Catalog refreshes do not restart the shared runtime
+  or change persisted conversation selections.
 - Additional page references belong to the user turn that attached them. Their
   Vault paths are persisted with the message and encoded as `<context_files>`;
   note bodies are read by the agent on demand instead of being copied wholesale

@@ -10,6 +10,12 @@ export interface CodexExecutableOptions {
   isExecutable?: (candidate: string) => boolean;
 }
 
+const DESKTOP_APP_NAMES = ['ChatGPT.app', 'Codex.app'];
+const DESKTOP_EXECUTABLE_PATHS = [
+  'Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex',
+  'Contents/Resources/codex',
+];
+
 function isExecutableFile(candidate: string): boolean {
   try {
     accessSync(candidate, constants.X_OK);
@@ -17,6 +23,39 @@ function isExecutableFile(candidate: string): boolean {
   } catch {
     return false;
   }
+}
+
+function findBundledExecutable(
+  appPath: string,
+  isExecutable: (candidate: string) => boolean,
+): string | null {
+  for (const relativePath of DESKTOP_EXECUTABLE_PATHS) {
+    const candidate = path.join(appPath, relativePath);
+    if (isExecutable(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function findRelocatedDesktopCodex(
+  configured: string,
+  options: CodexExecutableOptions,
+): string | null {
+  if (options.isWsl || (options.platform ?? process.platform) !== 'darwin') {
+    return null;
+  }
+  for (const relativePath of DESKTOP_EXECUTABLE_PATHS) {
+    const suffix = `/${relativePath}`;
+    if (!configured.endsWith(suffix)) {
+      continue;
+    }
+    const appPath = configured.slice(0, -suffix.length);
+    if (DESKTOP_APP_NAMES.includes(path.basename(appPath))) {
+      return findBundledExecutable(appPath, options.isExecutable ?? isExecutableFile);
+    }
+  }
+  return null;
 }
 
 export function findDesktopCodex(
@@ -27,10 +66,10 @@ export function findDesktopCodex(
   }
   const home = options.homeDirectory ?? homedir();
   const isExecutable = options.isExecutable ?? isExecutableFile;
-  for (const app of ['ChatGPT.app', 'Codex.app']) {
+  for (const app of DESKTOP_APP_NAMES) {
     for (const directory of ['/Applications', path.join(home, 'Applications')]) {
-      const candidate = path.join(directory, app, 'Contents', 'Resources', 'codex');
-      if (isExecutable(candidate)) {
+      const candidate = findBundledExecutable(path.join(directory, app), isExecutable);
+      if (candidate) {
         return candidate;
       }
     }
@@ -48,6 +87,10 @@ export function resolveCodexExecutable(
       && /[/\\]/.test(configured)
       && !(options.isExecutable ?? isExecutableFile)(configured)
     ) {
+      const relocated = findRelocatedDesktopCodex(configured, options);
+      if (relocated) {
+        return relocated;
+      }
       throw new Error(
         `The configured Codex executable is unavailable: ${configured}. `
         + 'Update the Codex executable setting in Windy.',
