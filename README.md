@@ -111,6 +111,17 @@ executable; an explicit **Codex executable** always takes precedence. Reload
 Windy after saving a change. Runtime selection stays fixed during a plugin
 session so changing settings cannot restart active conversations.
 
+Windy supports both the legacy desktop executable and the nested
+`codex-cli/CodexCLI.app` layout. If a pinned bundled executable moves during an
+app update, Windy resolves its new location within the same application on the
+next plugin load. Custom executable pins never switch to another installation.
+
+Opening a model or reasoning picker, opening Windy settings, and resolving new
+conversation defaults query the current `model/list` catalog. Newly available
+models appear as Codex refreshes its catalog without a Windy update or manual
+path change. Existing conversations retain their selected model and reasoning
+effort.
+
 If an older runtime reports `paginated_threads is not supported yet`, select a
 desktop-app runtime compatible with that conversation, reload Windy, and retry.
 Windy preserves the existing conversation and does not recreate or rewrite its

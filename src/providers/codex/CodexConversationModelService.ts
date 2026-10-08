@@ -44,17 +44,12 @@ export class CodexConversationModelService implements ConversationModelService {
   ) {}
 
   async getOptions(): Promise<ConversationModelOption[]> {
-    if (this.options) {
-      return structuredClone(this.options);
-    }
     if (!this.refreshFlight) {
-      this.refreshFlight = this.loadOptions();
+      this.refreshFlight = this.loadOptions().finally(() => {
+        this.refreshFlight = null;
+      });
     }
-    try {
-      return structuredClone(await this.refreshFlight);
-    } finally {
-      this.refreshFlight = null;
-    }
+    return structuredClone(await this.refreshFlight);
   }
 
   async getNewConversationDefaults(): Promise<ResolvedConversationSelection> {

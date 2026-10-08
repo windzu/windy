@@ -43,7 +43,7 @@ function model(
 }
 
 describe('ConversationModelService', () => {
-  it('loads the real paginated catalog once and hides unavailable models', async () => {
+  it('shares concurrent paginated catalog loads and hides unavailable models', async () => {
     let readyCount = 0;
     let requestCount = 0;
     const gateway: ModelCatalogGateway = {
@@ -108,7 +108,79 @@ describe('ConversationModelService', () => {
     assert.equal(readyCount, 1);
     assert.equal(requestCount, 2);
     await service.getOptions();
-    assert.equal(requestCount, 2);
+    assert.equal(readyCount, 2);
+    assert.equal(requestCount, 4);
+  });
+
+  it('discovers new models and defaults without reloading or changing existing selections', async () => {
+    let catalog = [model('gpt-5.6-sol', { isDefault: true })];
+    const updates: Array<[string, string, string]> = [];
+    const service = new CodexConversationModelService(
+      {
+        async ensureReady(): Promise<void> {},
+        async request<T>(): Promise<T> {
+          return { data: catalog, nextCursor: null } as T;
+        },
+      },
+      {
+        async setSelection(conversationId, selectedModel, effort): Promise<void> {
+          updates.push([conversationId, selectedModel, effort]);
+        },
+        async setReasoningEffort(): Promise<void> {},
+      },
+      structuredClone(DEFAULT_WINDY_SETTINGS),
+    );
+
+    const first = await service.getOptions();
+    first[0].label = 'Changed by caller';
+    first[0].reasoningEfforts.length = 0;
+    catalog = [
+      model('gpt-6.1-sol', { isDefault: true, defaultReasoningEffort: 'low' }),
+      model('gpt-5.6-sol'),
+    ];
+
+    const refreshed = await service.getOptions();
+    assert.deepEqual(refreshed.map(option => option.value), [
+      'gpt-6.1-sol', 'gpt-5.6-sol',
+    ]);
+    assert.equal(service.getSelectionLabel('gpt-6.1-sol'), 'GPT-6.1 Sol');
+    assert.equal(service.getSelectionLabel('gpt-5.6-sol'), 'GPT-5.6 Sol');
+    assert.deepEqual(await service.getNewConversationDefaults(), {
+      model: 'gpt-6.1-sol', reasoningEffort: 'low',
+    });
+    assert.deepEqual(updates, []);
+    await service.select('conversation-1', 'gpt-6.1-sol');
+    assert.deepEqual(updates, [['conversation-1', 'gpt-6.1-sol', 'low']]);
+  });
+
+  it('keeps labels after a failed refresh and retries the next catalog request', async () => {
+    let fail = false;
+    let requests = 0;
+    const service = new CodexConversationModelService(
+      {
+        async ensureReady(): Promise<void> {},
+        async request<T>(): Promise<T> {
+          requests += 1;
+          if (fail) {
+            throw new Error('catalog unavailable');
+          }
+          return { data: [model('gpt-6.1-sol')], nextCursor: null } as T;
+        },
+      },
+      {
+        async setSelection(): Promise<void> {},
+        async setReasoningEffort(): Promise<void> {},
+      },
+      structuredClone(DEFAULT_WINDY_SETTINGS),
+    );
+
+    await service.getOptions();
+    fail = true;
+    await assert.rejects(service.getOptions(), /catalog unavailable/);
+    assert.equal(service.getSelectionLabel('gpt-6.1-sol'), 'GPT-6.1 Sol');
+    fail = false;
+    assert.equal((await service.getOptions())[0].value, 'gpt-6.1-sol');
+    assert.equal(requests, 3);
   });
 
   it('persists a concrete model and its default effort atomically', async () => {
