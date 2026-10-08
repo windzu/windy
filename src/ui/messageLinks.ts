@@ -5,7 +5,7 @@ export interface MessageLinkContext {
 }
 
 export interface MessageLinkNavigator {
-  openInternal(linkText: string, sourcePath: string, paneType: 'window'): Promise<void>;
+  openInternal(linkText: string, sourcePath: string, paneType: 'tab'): Promise<void>;
   openExternal(url: string): void;
   onError(error: unknown): void;
 }
@@ -44,7 +44,7 @@ export function resolveMessageLink(
         if (linkText) {
           return { type: 'internal', linkText };
         }
-        uri.searchParams.set('paneType', 'window');
+        uri.searchParams.set('paneType', 'tab');
         return { type: 'external', url: uri.toString() };
       }
       if (scheme === 'app' && uri.hostname === 'obsidian.md') {
@@ -111,7 +111,7 @@ async function openMessageLink(
   navigator: MessageLinkNavigator,
 ): Promise<void> {
   if (target.type === 'internal') {
-    await navigator.openInternal(target.linkText, context.sourcePath, 'window');
+    await navigator.openInternal(target.linkText, context.sourcePath, 'tab');
   } else {
     navigator.openExternal(target.url);
   }

@@ -70,16 +70,16 @@ describe('message link navigation', () => {
     }, context), { type: 'internal', linkText: '100%20ready' });
   });
 
-  it('requests a popout when an Obsidian URI targets another vault or vault ID', () => {
+  it('requests a tab when an Obsidian URI targets another vault or vault ID', () => {
     const target = resolveMessageLink({
-      href: 'obsidian://open?vault=other-vault&file=Plan&paneType=tab',
+      href: 'obsidian://open?vault=other-vault&file=Plan&paneType=window',
     }, context);
     assert.equal(target?.type, 'external');
     if (target?.type === 'external') {
       const uri = new URL(target.url);
       assert.equal(uri.searchParams.get('vault'), 'other-vault');
       assert.equal(uri.searchParams.get('file'), 'Plan');
-      assert.equal(uri.searchParams.get('paneType'), 'window');
+      assert.equal(uri.searchParams.get('paneType'), 'tab');
     }
   });
 
@@ -103,11 +103,11 @@ describe('message link navigation', () => {
     }
   });
 
-  it('opens nested or keyboard-activated links once in a new window using the source page', () => {
+  it('opens nested or keyboard-activated links once in a new tab using the source page', () => {
     const harness = clickHarness('Plans/Next#Scope');
     handleMessageLinkClick(harness.event, harness.container, context, harness.navigator);
 
-    assert.deepEqual(harness.opened, [['Plans/Next#Scope', 'Projects/Overview.md', 'window']]);
+    assert.deepEqual(harness.opened, [['Plans/Next#Scope', 'Projects/Overview.md', 'tab']]);
     assert.equal(harness.prevented, true);
     assert.equal(harness.stopped, true);
   });
@@ -137,7 +137,7 @@ describe('message link navigation', () => {
 
   it('reports failed navigation without an unhandled rejection', async () => {
     const harness = clickHarness('Plans/Next');
-    const failure = new Error('Cannot open window');
+    const failure = new Error('Cannot open tab');
     harness.navigator.openInternal = async () => { throw failure; };
     handleMessageLinkClick(harness.event, harness.container, context, harness.navigator);
     await new Promise(resolve => setImmediate(resolve));
