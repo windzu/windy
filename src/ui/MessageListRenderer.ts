@@ -4,6 +4,7 @@ import {
   type App,
   Component,
   MarkdownRenderer,
+  Notice,
   setIcon,
 } from 'obsidian';
 
@@ -36,6 +37,7 @@ import {
 } from './FileAttachmentControl';
 import { resolveFileAttachmentPath } from '../utils/fileAttachment';
 import { getVaultPath } from '../utils/path';
+import { handleMessageLinkClick } from './messageLinks';
 
 export class MessageListRenderer extends Component {
   constructor(
@@ -160,6 +162,29 @@ export class MessageListRenderer extends Component {
     content: string,
     sourcePath: string,
   ): Promise<void> {
+    const linkContext = {
+      sourcePath,
+      vaultName: this.app.vault.getName(),
+      vaultPath: getVaultPath(this.app),
+    };
+    const onLinkClick = (event: MouseEvent) => handleMessageLinkClick(
+      event,
+      container,
+      linkContext,
+      {
+        openInternal: (linkText, path, paneType) => this.app.workspace.openLinkText(
+          linkText,
+          path,
+          paneType,
+        ),
+        openExternal: url => { container.ownerDocument.defaultView?.open(url, '_blank'); },
+        onError: error => {
+          new Notice(`Unable to open link: ${error instanceof Error ? error.message : String(error)}`);
+        },
+      },
+    );
+    this.registerDomEvent(container, 'click', onLinkClick, { capture: true });
+    this.registerDomEvent(container, 'auxclick', onLinkClick, { capture: true });
     try {
       await MarkdownRenderer.render(
         this.app,

@@ -44,6 +44,13 @@ supports light and dark themes, and avoids hard-coded application surfaces.
 - Activity labels are derived locally from normalized tool metadata rather
   than generated through an additional model request.
 - Running, completed, blocked, and failed states remain distinguishable.
+- Rendered assistant links support mouse, keyboard, and middle-click activation.
+  Web and application links open through the system. Vault links open in a new
+  Obsidian popout window, resolving relative paths from the conversation page
+  and preserving heading and block destinations. Current-vault absolute paths,
+  file URIs, and Obsidian open URIs use the same navigation behavior. Obsidian
+  open URIs for other vaults request `paneType=window` through the URI handler.
+  Navigation does not stop background agent work.
 
 #### Transcript following
 
