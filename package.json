@@ -1,6 +1,6 @@
 {
   "name": "windy",
-  "version": "0.4.5",
+  "version": "0.4.6",
   "description": "A page-native agent for Obsidian",
   "main": "main.js",
   "scripts": {
