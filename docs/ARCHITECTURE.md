@@ -59,6 +59,10 @@ runtime accepts only notifications matching its current `threadId` and
 - Persisted conversation count does not determine child-process count.
 - Page navigation changes the visible route but does not dispose a running
   conversation runtime.
+- File and folder renames migrate page conversation associations, refresh the
+  active page context, and publish the new route before waiting for storage.
+  The active conversation id stays attached to the renamed page; routing does
+  not depend on a workspace navigation event being emitted during the rename.
 - Plugin unload first cancels conversation work, then shuts down the shared
   gateway.
 - A gateway restart increments its generation. Every conversation runtime

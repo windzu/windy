@@ -11,6 +11,7 @@ type PageContextListener = (page: ActivePage | null) => void;
 export interface PageContextSource {
   getActivePage(): ActivePage | null;
   onChange(listener: PageContextListener): () => void;
+  refresh(): void;
 }
 
 const SUPPORTED_PAGE_EXTENSIONS = new Set(['md', 'base']);
@@ -48,7 +49,7 @@ export class PageContextResolver implements PageContextSource {
     };
   }
 
-  private refresh(): void {
+  refresh(): void {
     const file = this.app.workspace.getActiveFile();
     const nextPage = file && SUPPORTED_PAGE_EXTENSIONS.has(file.extension)
       ? this.toActivePage(file)

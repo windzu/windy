@@ -37,6 +37,8 @@ class FakePageContext implements PageContextSource {
     return () => this.listeners.delete(listener);
   }
 
+  refresh(): void {}
+
   open(path: string): void {
     const filename = path.split('/').at(-1) ?? path;
     const extension = filename.split('.').at(-1) ?? '';
